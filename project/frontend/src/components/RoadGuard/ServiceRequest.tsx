@@ -11,21 +11,21 @@ import {
   Fuel,
   Key,
   Clock,
-  Shield,
-  LogOut,
-  User
+  Shield
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { api } from '../../lib/api';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import UserMenu from './UserMenu';
 
 const ServiceRequest: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [vehicleInfo, setVehicleInfo] = useState({
+  vehicleType: 'car',
     make: '',
     model: '',
     year: '',
@@ -33,6 +33,19 @@ const ServiceRequest: React.FC = () => {
     color: '',
     fuelType: 'petrol'
   });
+  type SavedVehicle = {
+    _id: string;
+    vehicleType: string;
+    make?: string;
+    model?: string;
+    year?: string;
+    licensePlate: string;
+    color?: string;
+    fuelType?: string;
+    isDefault?: boolean;
+  };
+  const [savedVehicles, setSavedVehicles] = useState<SavedVehicle[]>([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string>('manual');
   const [description, setDescription] = useState('');
   const [currentLocation, setCurrentLocation] = useState('');
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -43,6 +56,7 @@ const ServiceRequest: React.FC = () => {
   type Quotation = { estimatedCost: string; estimatedTime: string; nearbyMechanics: number; confidence: number };
   const [quotation, setQuotation] = useState<Quotation | null>(null);
   const [step, setStep] = useState(1);
+  // kept for potential future personalization; UserMenu reads from localStorage directly
 
   // Preselected mechanic (from user dashboard card)
   const [selectedMechanic, setSelectedMechanic] = useState<{ id: string; name: string } | null>(null);
@@ -51,6 +65,7 @@ const ServiceRequest: React.FC = () => {
   const navState: any = location.state || {};
   const preselectedMechanicId: string | undefined = navState?.mechanicId || navState?.workshopId;
   const preselectedMechanicName: string | undefined = navState?.mechanicName || navState?.mechanicDisplayName;
+  const prefillVehicle: any = navState?.prefillVehicle;
 
   useEffect(() => {
     let ignore = false;
@@ -105,6 +120,55 @@ const ServiceRequest: React.FC = () => {
 
   useEffect(() => {
     detectLocation();
+    try {
+      // UserMenu reads user details from localStorage
+      localStorage.getItem('user');
+    } catch {}
+  }, []);
+
+  // Apply prefilled vehicle fields if provided via navigation state
+  useEffect(() => {
+    if (!prefillVehicle) return;
+    setVehicleInfo((prev) => ({
+      ...prev,
+      ...prefillVehicle,
+    }));
+    // Mark as manual to avoid auto-overwrite from saved vehicles
+    setSelectedVehicleId('manual');
+  }, [prefillVehicle]);
+
+  // Fetch user's saved vehicles and auto-apply default/first if no prefill provided
+  useEffect(() => {
+    let ignore = false;
+    const loadVehicles = async () => {
+      try {
+        const list: SavedVehicle[] = await api.get('/api/vehicles');
+        if (ignore) return;
+        setSavedVehicles(list || []);
+        // If no prefill from navigation, auto-apply default or first
+        if (!prefillVehicle && list && list.length > 0) {
+          const def = list.find(v => v.isDefault) || list[0];
+          if (def) {
+            setSelectedVehicleId(def._id);
+            setVehicleInfo(prev => ({
+              ...prev,
+              vehicleType: def.vehicleType || prev.vehicleType,
+              make: def.make || '',
+              model: def.model || '',
+              year: def.year || '',
+              plate: def.licensePlate,
+              color: def.color || '',
+              fuelType: (def.fuelType as any) || prev.fuelType,
+            }));
+          }
+        }
+      } catch {
+        // ignore fetch errors; keep manual entry
+      }
+    };
+    loadVehicles();
+    return () => { ignore = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Initialize/update map when currentLocation changes
@@ -190,14 +254,7 @@ const ServiceRequest: React.FC = () => {
 
   // no-op
 
-  const handleLogout = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('user');
-    localStorage.removeItem('mechanicRequests');
-    localStorage.removeItem('currentRequest');
-    toast.success('Logged out successfully');
-    navigate('/auth');
-  };
+  // user menu handles logout globally
 
   if (step === 2 && showQuotation) {
     return (
@@ -278,19 +335,7 @@ const ServiceRequest: React.FC = () => {
           </div>
           
           {/* User Menu */}
-          <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-2">
-              <User className="w-5 h-5 text-gray-600" />
-              <span className="text-sm text-gray-700">John Doe</span>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="flex items-center space-x-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="text-sm font-medium">Logout</span>
-            </button>
-          </div>
+          <UserMenu />
         </div>
       </div>
 
@@ -332,8 +377,64 @@ const ServiceRequest: React.FC = () => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <h2 className="text-lg font-semibold text-gray-800">Vehicle Information</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-800">Vehicle Information</h2>
+            <button
+              onClick={() => navigate('/vehicles')}
+              className="text-sm text-blue-600 hover:text-blue-800"
+            >
+              Choose from My Vehicles
+            </button>
+          </div>
+          {/* Saved vehicles selector */}
+          {savedVehicles.length > 0 && (
+            <div className="grid grid-cols-2 gap-4">
+              <select
+                value={selectedVehicleId}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedVehicleId(val);
+                  if (val === 'manual') return; 
+                  const v = savedVehicles.find(sv => sv._id === val);
+                  if (v) {
+                    setVehicleInfo(prev => ({
+                      ...prev,
+                      vehicleType: v.vehicleType || prev.vehicleType,
+                      make: v.make || '',
+                      model: v.model || '',
+                      year: v.year || '',
+                      plate: v.licensePlate,
+                      color: v.color || '',
+                      fuelType: (v.fuelType as any) || prev.fuelType,
+                    }));
+                  }
+                }}
+                className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none col-span-2"
+              >
+                <option value="manual">Manual entry</option>
+                {savedVehicles.map(v => (
+                  <option key={v._id} value={v._id}>
+                    {v.licensePlate} • {v.make || '-'} {v.model || ''} {v.isDefault ? '(Default)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
+            <select
+              value={vehicleInfo.vehicleType}
+              onChange={e => setVehicleInfo({ ...vehicleInfo, vehicleType: e.target.value })}
+              className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            >
+              <option value="car">Car</option>
+              <option value="bike">Bike</option>
+              <option value="scooter">Scooter</option>
+              <option value="truck">Truck</option>
+              <option value="van">Van</option>
+              <option value="bus">Bus</option>
+              <option value="other">Other</option>
+            </select>
             <input
               type="text"
               placeholder="Make (e.g., Honda)"
@@ -378,6 +479,9 @@ const ServiceRequest: React.FC = () => {
               <option value="diesel">Diesel</option>
               <option value="electric">Electric</option>
               <option value="hybrid">Hybrid</option>
+              <option value="cng">CNG</option>
+              <option value="lpg">LPG</option>
+              <option value="other">Other</option>
             </select>
           </div>
         </motion.div>

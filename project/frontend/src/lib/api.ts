@@ -24,4 +24,21 @@ export const api = {
     if (!res.ok) throw new Error((await res.text()) || 'Request failed');
     return json(res);
   },
+  put: async (path: string, body?: any) => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) throw new Error((await res.text()) || 'Request failed');
+    return json(res);
+  },
+  delete: async (path: string) => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error((await res.text()) || 'Request failed');
+    return json(res);
+  },
 };

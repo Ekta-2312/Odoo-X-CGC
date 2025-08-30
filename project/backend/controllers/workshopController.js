@@ -18,10 +18,15 @@ exports.listMechanics = async (req, res) => {
       docs.map((m) => ({
         id: m._id,
         name: m.name,
+        email: m.email,
+        mobile: m.mobile || m.phone || m.contactNumber || '',
+        profileImage: m.profileImage,
         rating: m.rating || 0,
         totalServices: m.totalServices || 0,
         location: m.location || {},
-    isVerified: !!m.isVerified,
+        isVerified: !!m.isVerified,
+        createdAt: m.createdAt,
+        updatedAt: m.updatedAt,
       }))
     );
   } catch (e) {

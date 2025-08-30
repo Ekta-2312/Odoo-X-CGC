@@ -10,6 +10,7 @@ import {
   Car,
   LogOut
 } from 'lucide-react';
+import { useAuth } from '../../hooks/useAuth';
 
 interface SideNavigationProps {
   userType: 'mechanic' | 'admin';
@@ -18,12 +19,12 @@ interface SideNavigationProps {
 const SideNavigation: React.FC<SideNavigationProps> = ({ userType }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { logout } = useAuth();
 
+  // Mechanic: keep My Requests, include History; remove Settings
   const mechanicNavItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home, path: '/mechanic' },
-    { id: 'requests', label: 'My Requests', icon: ClipboardList, path: '/mechanic' },
-    { id: 'history', label: 'Service History', icon: BarChart3, path: '/mechanic' },
-    { id: 'settings', label: 'Settings', icon: Settings, path: '/mechanic' }
+    { id: 'requests', label: 'My Requests', icon: ClipboardList, path: '/mechanic?tab=requests' },
+    { id: 'history', label: 'Service History', icon: BarChart3, path: '/mechanic?tab=history' }
   ];
 
   const adminNavItems = [
@@ -54,7 +55,12 @@ const SideNavigation: React.FC<SideNavigationProps> = ({ userType }) => {
       <nav className="p-4 space-y-2">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = location.pathname === item.path;
+          let isActive = location.pathname === item.path;
+          if (userType === 'mechanic') {
+            const params = new URLSearchParams(location.search);
+            const activeTab = params.get('tab') || 'requests';
+            isActive = item.id === activeTab;
+          }
           
           return (
             <button
@@ -75,7 +81,7 @@ const SideNavigation: React.FC<SideNavigationProps> = ({ userType }) => {
 
       <div className="absolute bottom-4 left-4 right-4">
         <button
-          onClick={() => navigate('/auth')}
+          onClick={logout}
           className="w-full flex items-center space-x-3 px-4 py-3 text-gray-600 hover:bg-gray-100 hover:text-gray-800 rounded-xl transition-all duration-200"
         >
           <LogOut className="w-5 h-5" />

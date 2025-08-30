@@ -1,36 +1,74 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { 
   ArrowLeft, 
   Star, 
   MapPin, 
   Phone, 
-  Clock, 
   Share2,
   Car,
   Wrench,
   Battery,
   User
 } from 'lucide-react';
+import UserMenu from './UserMenu';
+import { api } from '../../lib/api';
+import toast from 'react-hot-toast';
 
 const WorkshopDetails: React.FC = () => {
   const navigate = useNavigate();
+  const { id } = useParams();
 
-  const workshop = {
-    name: 'AutoCare Plus',
-    rating: 4.8,
-    reviews: 120,
-    distance: '1.2 km',
-    address: '123 Service Road, Andheri East, Mumbai',
-    phone: '+91 98765 43210',
-    hours: 'Open 24/7',
-    image: 'https://images.pexels.com/photos/4489702/pexels-photo-4489702.jpeg',
-    services: [
-      { name: 'Engine Repair', price: '₹500+', icon: Car },
-      { name: 'Towing Service', price: '₹300+', icon: Wrench },
-      { name: 'Battery Service', price: '₹200+', icon: Battery }
-    ]
+  type Mechanic = {
+    _id: string;
+    name?: string;
+    email?: string;
+    mobile?: string;
+    phone?: string;
+    contactNumber?: string;
+    profileImage?: string;
+    rating?: number;
+    totalServices?: number;
+    location?: { address?: string; latitude?: number; longitude?: number };
+    isVerified?: boolean;
   };
+
+  const [mech, setMech] = useState<Mechanic | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    let ignore = false;
+    const fetchMech = async () => {
+      if (!id) return;
+      setLoading(true);
+      try {
+        const data: Mechanic = await api.get(`/api/workshops/${id}`);
+        if (!ignore) setMech(data);
+      } catch (e) {
+        toast.error('Workshop not found');
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    };
+    fetchMech();
+    return () => { ignore = true; };
+  }, [id]);
+
+  const display = useMemo(() => {
+    const name = mech?.name || 'Mechanic';
+    const phone = mech?.mobile || mech?.phone || mech?.contactNumber || 'Not specified';
+    const address = mech?.location?.address || 'Address not specified';
+    const rating = typeof mech?.rating === 'number' ? mech!.rating! : 0;
+    const reviews = typeof mech?.totalServices === 'number' ? mech!.totalServices! : 0;
+    const image = mech?.profileImage || 'https://images.pexels.com/photos/4489702/pexels-photo-4489702.jpeg';
+    return { name, phone, address, rating, reviews, image };
+  }, [mech]);
+
+  const services = [
+    { name: 'Engine Repair', price: '₹500+', icon: Car },
+    { name: 'Towing Service', price: '₹300+', icon: Wrench },
+    { name: 'Battery Service', price: '₹200+', icon: Battery }
+  ];
 
   const reviews = [
     { name: 'Amit Singh', rating: 5, comment: 'Quick and professional service!', date: '2 days ago' },
@@ -48,9 +86,12 @@ const WorkshopDetails: React.FC = () => {
             </button>
             <h1 className="text-xl font-semibold text-gray-800">Workshop Details</h1>
           </div>
-          <button className="p-2 hover:bg-gray-100 rounded-lg">
-            <Share2 className="w-6 h-6 text-gray-600" />
-          </button>
+          <div className="flex items-center gap-3">
+            <button className="p-2 hover:bg-gray-100 rounded-lg">
+              <Share2 className="w-6 h-6 text-gray-600" />
+            </button>
+            <UserMenu />
+          </div>
         </div>
       </div>
 
@@ -58,29 +99,29 @@ const WorkshopDetails: React.FC = () => {
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="bg-white shadow rounded-lg overflow-hidden">
             <div className="relative">
-              <img src={workshop.image} alt={workshop.name} className="w-full h-64 object-cover" />
+              <img src={display.image} alt={display.name} className="w-full h-64 object-cover" />
               <div className="absolute inset-0 bg-black opacity-30"></div>
               <div className="absolute inset-0 flex flex-col justify-center items-center text-center p-4">
-                <h2 className="text-3xl font-bold text-white">{workshop.name}</h2>
+                <h2 className="text-3xl font-bold text-white">{display.name}</h2>
                 <div className="flex items-center justify-center space-x-2 mt-2">
                   <div className="flex items-center">
                     <Star className="w-5 h-5 text-yellow-400" />
-                    <span className="text-white font-semibold">{workshop.rating}</span>
+                    <span className="text-white font-semibold">{display.rating}</span>
                   </div>
-                  <span className="text-white">({workshop.reviews} reviews)</span>
+                  <span className="text-white">({display.reviews} reviews)</span>
                 </div>
                 <div className="flex space-x-4 mt-4">
                   <div className="flex items-center text-white">
                     <MapPin className="w-5 h-5" />
-                    <span className="ml-1">{workshop.address}</span>
+                    <span className="ml-1">{display.address}</span>
                   </div>
                   <div className="flex items-center text-white">
                     <Phone className="w-5 h-5" />
-                    <span className="ml-1">{workshop.phone}</span>
+                    <span className="ml-1">{display.phone}</span>
                   </div>
                 </div>
                 <div className="mt-4">
-                  <span className="text-white bg-green-500 px-3 py-1 rounded-full text-sm font-semibold">{workshop.hours}</span>
+                  <span className="text-white bg-green-500 px-3 py-1 rounded-full text-sm font-semibold">Open 24/7</span>
                 </div>
               </div>
             </div>
@@ -88,7 +129,7 @@ const WorkshopDetails: React.FC = () => {
             <div className="p-4">
               <h3 className="text-lg font-semibold text-gray-800">Services Offered</h3>
               <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {workshop.services.map((service, index) => (
+                {services.map((service, index) => (
                   <div key={index} className="bg-gray-100 p-4 rounded-lg flex items-center">
                     <service.icon className="w-6 h-6 text-gray-600" />
                     <div className="ml-3">
@@ -129,6 +170,11 @@ const WorkshopDetails: React.FC = () => {
           </div>
         </div>
       </div>
+      {loading && (
+        <div className="fixed inset-0 bg-black bg-opacity-10 flex items-center justify-center">
+          <div className="bg-white px-4 py-2 rounded-lg shadow">Loading...</div>
+        </div>
+      )}
     </div>
   );
 };

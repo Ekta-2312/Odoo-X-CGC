@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   MapPin, 
   Phone, 
   Car,
   Wrench,
-  RefreshCw,
-  
+  LogOut,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
@@ -13,8 +12,11 @@ import { api } from '../../lib/api';
 import SideNavigation from './SideNavigation';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { useAuth } from '../../hooks/useAuth';
+import { useLocation } from 'react-router-dom';
 
 const MechanicDashboard: React.FC = () => {
+  const { logout } = useAuth();
   type Req = {
     _id: string;
     serviceType: string;
@@ -31,6 +33,12 @@ const MechanicDashboard: React.FC = () => {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
+  const routerLocation = useLocation();
+
+  const activeTab = useMemo<'requests' | 'history'>(() => {
+    const params = new URLSearchParams(routerLocation.search);
+    return (params.get('tab') as 'requests' | 'history') || 'requests';
+  }, [routerLocation.search]);
 
   // Load requests from database/localStorage
   useEffect(() => {
@@ -51,6 +59,20 @@ const MechanicDashboard: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // Reset selection if it doesn't exist in the current tab's list
+  useEffect(() => {
+    if (!selectedRequest) return;
+    const exists = requests.some(r => r._id === selectedRequest._id);
+    if (!exists) setSelectedRequest(null);
+  }, [activeTab, requests]);
+
+  const displayedRequests = useMemo(() => {
+    if (activeTab === 'history') {
+      return requests.filter(r => r.status === 'completed' || r.status === 'rejected');
+    }
+    return requests.filter(r => r.status !== 'completed' && r.status !== 'rejected');
+  }, [requests, activeTab]);
 
   const handleStatusUpdate = async (requestId: string, newStatus: string) => {
     try {
@@ -124,16 +146,15 @@ const MechanicDashboard: React.FC = () => {
         <div className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-800">Service Requests</h1>
-              <p className="text-gray-600">Manage your assigned tasks and new requests</p>
+              <h1 className="text-2xl font-bold text-gray-800">{activeTab === 'history' ? 'Service History' : 'Service Requests'}</h1>
+              <p className="text-gray-600">{activeTab === 'history' ? 'Review your completed and declined jobs' : 'Manage your assigned tasks and new requests'}</p>
             </div>
             <button
-              onClick={loadRequests}
-              disabled={loading}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              onClick={logout}
+              className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              <span>Refresh</span>
+              <LogOut className="w-4 h-4" />
+              <span>Logout</span>
             </button>
           </div>
         </div>
@@ -144,9 +165,9 @@ const MechanicDashboard: React.FC = () => {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-gray-800">
-                  Incoming Requests ({requests.length})
+                  {activeTab === 'history' ? 'Completed / Declined' : 'Incoming Requests'} ({displayedRequests.length})
                 </h2>
-                {requests.filter(r => r.status === 'submitted').length > 0 && (
+                {activeTab !== 'history' && requests.filter(r => r.status === 'submitted').length > 0 && (
                   <span className="bg-red-100 text-red-600 px-2 py-1 rounded-full text-xs font-medium">
                     {requests.filter(r => r.status === 'submitted').length} New
                   </span>
@@ -159,15 +180,15 @@ const MechanicDashboard: React.FC = () => {
                 </div>
               )}
 
-              {!loading && requests.length === 0 && (
+        {!loading && displayedRequests.length === 0 && (
                 <div className="text-center py-12">
                   <Wrench className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-600 mb-2">No requests yet</h3>
-                  <p className="text-gray-500">New service requests will appear here</p>
+          <h3 className="text-lg font-medium text-gray-600 mb-2">No items</h3>
+          <p className="text-gray-500">{activeTab === 'history' ? 'Completed or declined requests will show here' : 'New service requests will appear here'}</p>
                 </div>
               )}
 
-              {!loading && requests.map((request: any) => (
+        {!loading && displayedRequests.map((request: any) => (
                 <motion.div
                   key={request._id}
                   onClick={() => setSelectedRequest(request)}
@@ -216,7 +237,7 @@ const MechanicDashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  {(request.status === 'submitted' || request.status === 'assigned') && (
+                  {activeTab !== 'history' && (request.status === 'submitted' || request.status === 'assigned') && (
                     <div className="flex space-x-2 mt-4">
                       <button
                         onClick={(e) => {
@@ -350,7 +371,7 @@ const MechanicDashboard: React.FC = () => {
 
                   {/* Action Buttons */}
                   <div className="space-y-3 pt-4">
-          {(selectedRequest.status === 'submitted' || selectedRequest.status === 'assigned') && (
+          {activeTab !== 'history' && (selectedRequest.status === 'submitted' || selectedRequest.status === 'assigned') && (
                       <div className="grid grid-cols-2 gap-3">
                         <button
               onClick={() => handleAcceptRequest(selectedRequest._id)}
@@ -367,7 +388,7 @@ const MechanicDashboard: React.FC = () => {
                       </div>
                     )}
                     
-          {selectedRequest.status === 'accepted' && (
+          {activeTab !== 'history' && selectedRequest.status === 'accepted' && (
                       <button
             onClick={() => handleStatusUpdate(selectedRequest._id, 'in-progress')}
                         className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
@@ -376,7 +397,7 @@ const MechanicDashboard: React.FC = () => {
                       </button>
                     )}
                     
-          {selectedRequest.status === 'in-progress' && (
+          {activeTab !== 'history' && selectedRequest.status === 'in-progress' && (
                       <button
             onClick={() => handleStatusUpdate(selectedRequest._id, 'completed')}
                         className="w-full bg-green-600 text-white py-3 rounded-lg font-medium hover:bg-green-700 transition-colors"

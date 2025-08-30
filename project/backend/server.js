@@ -36,6 +36,7 @@ const requestController = require('./controllers/requestController');
 requestController.setSocket(io);
 app.use('/api/requests', require('./routes/requests'));
 app.use('/api/workshops', require('./routes/workshops'));
+app.use('/api/vehicles', require('./routes/vehicles'));
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

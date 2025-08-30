@@ -16,6 +16,7 @@ import WorkshopDetails from './components/RoadGuard/WorkshopDetails';
 import PaymentGateway from './components/RoadGuard/PaymentGateway';
 import RatingsReview from './components/RoadGuard/RatingsReview';
 import RequestHistory from './components/RoadGuard/RequestHistory';
+import Vehicles from './components/RoadGuard/Vehicles';
 
 // Keep existing components for backward compatibility
 import { Verify } from './components/Verify';
@@ -167,6 +168,14 @@ const App = () => {
           element={
             <ProtectedRoute allowedRoles={['user']}>
               <RequestHistory />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/vehicles" 
+          element={
+            <ProtectedRoute allowedRoles={['user']}>
+              <Vehicles />
             </ProtectedRoute>
           } 
         />

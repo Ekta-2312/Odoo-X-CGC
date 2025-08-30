@@ -5,12 +5,11 @@ import {
   CreditCard, 
   Smartphone, 
   Wallet, 
-  Shield,
-  CheckCircle,
-  Clock
+  CheckCircle
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
+import UserMenu from './UserMenu';
 
 const PaymentGateway: React.FC = () => {
   const navigate = useNavigate();
@@ -22,6 +21,8 @@ const PaymentGateway: React.FC = () => {
     cvv: '',
     cardName: ''
   });
+  // reference setter to avoid unused warning in static header-only view
+  if (!setPaymentData) { /* no-op */ }
 
   const serviceDetails = {
     service: 'Engine Breakdown Repair',
@@ -77,11 +78,14 @@ const PaymentGateway: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200 px-4 py-4 sticky top-0 z-10">
-        <div className="flex items-center space-x-3">
-          <button onClick={() => navigate('/track')} className="p-2 hover:bg-gray-100 rounded-lg">
-            <ArrowLeft className="w-6 h-6 text-gray-600" />
-          </button>
-          <h1 className="text-xl font-semibold text-gray-800">Payment</h1>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <button onClick={() => navigate('/track')} className="p-2 hover:bg-gray-100 rounded-lg">
+              <ArrowLeft className="w-6 h-6 text-gray-600" />
+            </button>
+            <h1 className="text-xl font-semibold text-gray-800">Payment</h1>
+          </div>
+          <UserMenu />
         </div>
       </div>
 

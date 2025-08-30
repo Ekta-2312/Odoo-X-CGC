@@ -28,6 +28,7 @@ const Register = require('../models/Register');
       name: 'Rajesh Kumar',
       email: 'mechanic@example.com',
       password: 'mechanic123',
+  mobile: '+91 98765 43210',
       role: 'mechanic',
       isVerified: true,
       provider: 'email',

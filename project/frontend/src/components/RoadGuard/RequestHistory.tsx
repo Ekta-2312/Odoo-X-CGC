@@ -6,11 +6,10 @@ import {
   CheckCircle, 
   XCircle, 
   Star,
-  Filter,
-  Calendar,
   Download
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import UserMenu from './UserMenu';
 
 const RequestHistory: React.FC = () => {
   const navigate = useNavigate();
@@ -115,9 +114,12 @@ const RequestHistory: React.FC = () => {
             </button>
             <h1 className="text-xl font-semibold text-gray-800">Request History</h1>
           </div>
-          <button className="p-2 hover:bg-gray-100 rounded-lg">
-            <Download className="w-6 h-6 text-gray-600" />
-          </button>
+          <div className="flex items-center gap-3">
+            <button className="p-2 hover:bg-gray-100 rounded-lg">
+              <Download className="w-6 h-6 text-gray-600" />
+            </button>
+            <UserMenu />
+          </div>
         </div>
       </div>
 

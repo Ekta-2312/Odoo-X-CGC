@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Phone, MessageCircle, MapPin, Star } from 'lucide-react';
+import UserMenu from './UserMenu';
 import StatusProgress from './StatusProgress';
 import toast from 'react-hot-toast';
 import { api } from '../../lib/api';
@@ -125,7 +126,7 @@ const TrackRequest: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200 px-4 py-4 sticky top-0 z-10">
-        <div className="flex items-center justify-between">
+  <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <button onClick={() => navigate('/user')} className="p-2 hover:bg-gray-100 rounded-lg">
               <ArrowLeft className="w-6 h-6 text-gray-600" />
@@ -135,12 +136,15 @@ const TrackRequest: React.FC = () => {
               <p className="text-sm text-gray-600">#RG123456</p>
             </div>
           </div>
-          <button 
-            onClick={handleShare}
-            className="px-3 py-1 bg-blue-100 text-blue-600 rounded-lg text-sm font-medium"
-          >
-            Share
-          </button>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={handleShare}
+              className="px-3 py-1 bg-blue-100 text-blue-600 rounded-lg text-sm font-medium"
+            >
+              Share
+            </button>
+            <UserMenu />
+          </div>
         </div>
       </div>
 
