@@ -6,6 +6,7 @@ import StatusProgress from './StatusProgress';
 import toast from 'react-hot-toast';
 import { api } from '../../lib/api';
 import L from 'leaflet';
+import { getSocket } from '../../lib/socket';
 import 'leaflet/dist/leaflet.css';
 
 const TrackRequest: React.FC = () => {
@@ -72,7 +73,34 @@ const TrackRequest: React.FC = () => {
     };
     fetchStatus();
     const t = setInterval(fetchStatus, 5000);
-    return () => clearInterval(t);
+    // Realtime updates
+    const s = getSocket();
+    const onUpd = (doc: any) => {
+      if (!requestId || !doc || String(doc._id) !== String(requestId)) return;
+      setEta(doc.etaMinutes || 0);
+      const stepMap = (s: string) => {
+        switch (s) {
+          case 'submitted': return 0;
+          case 'assigned': return 1;
+          case 'accepted': return 2;
+          case 'in-progress': return 4;
+          case 'completed': return 5;
+          default: return 0;
+        }
+      };
+      setCurrentStatus(stepMap(doc.status));
+      const u = doc.location;
+      const m = doc.mechanicId?.location || null;
+      const userPos = u && (u.latitude || u.longitude) ? { lat: u.latitude, lng: u.longitude } : undefined;
+      const mechPos = m && (m.latitude || m.longitude) ? { lat: m.latitude, lng: m.longitude } : undefined;
+      setCoords({ user: userPos, mech: mechPos });
+      setMechanicName(doc.mechanicId?.name || 'Awaiting assignment');
+    };
+    s.on('request:updated', onUpd);
+    return () => {
+      clearInterval(t);
+      s.off('request:updated', onUpd);
+    };
   }, [requestId]);
 
   const handleCall = () => {

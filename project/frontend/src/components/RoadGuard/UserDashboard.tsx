@@ -1,10 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, AlertCircle, Star, Search, Grid, List, Map as MapIcon, Shield, TrendingUp, Share, Phone, Bell } from 'lucide-react';
+import { MapPin, AlertCircle, Star, Search, Grid, List, Map as MapIcon, Shield, TrendingUp, Share, Phone, Bell, Filter, Check } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { api } from '../../lib/api';
 import UserMenu from './UserMenu';
+import { getSocket } from '../../lib/socket';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import SideNavigation from './SideNavigation';
 
 type MechanicItem = {
   id: string | number;
@@ -33,12 +37,17 @@ const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number) => 
 const UserDashboard: React.FC = () => {
   const [viewMode, setViewMode] = useState<'list' | 'grid' | 'map'>('list');
   const [filterDistance, setFilterDistance] = useState('5km');
+  const [customRadiusKm, setCustomRadiusKm] = useState<number>(10);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [sortBy, setSortBy] = useState('distance');
   const [mechanics, setMechanics] = useState<MechanicItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [coords, setCoords] = useState<{ lat?: number; lng?: number }>({});
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const markersLayerRef = useRef<L.LayerGroup | null>(null);
   // no-op
   const navigate = useNavigate();
 
@@ -71,6 +80,20 @@ const UserDashboard: React.FC = () => {
       );
     }
     loadMechanics();
+    // In-app notifications for new/updated requests
+    const s = getSocket();
+    const onNew = () => toast.success('A new request has been created');
+    const onUpd = (d: any) => {
+      if (d?.status === 'assigned') toast.success('Mechanic assigned to your request');
+      if (d?.status === 'in-progress') toast('Your service has started');
+      if (d?.status === 'completed') toast.success('Service completed');
+    };
+    s.on('request:new', onNew);
+    s.on('request:updated', onUpd);
+    return () => {
+      s.off('request:new', onNew);
+      s.off('request:updated', onUpd);
+    };
   }, []);
 
   // Recompute distances when coords change
@@ -131,7 +154,7 @@ const UserDashboard: React.FC = () => {
   }, [mechanics]);
 
   const filteredSorted = useMemo(() => {
-    const maxDistance = filterDistance === '2km' ? 2 : filterDistance === '5km' ? 5 : filterDistance === '10km' ? 10 : 50;
+    const maxDistance = filterDistance === '2km' ? 2 : filterDistance === '5km' ? 5 : filterDistance === '10km' ? 10 : filterDistance === '20km' ? 20 : customRadiusKm || 50;
     const list = mechanics.filter((m) => {
       const within = m.distanceKm == null ? true : m.distanceKm <= maxDistance;
       const match =
@@ -141,7 +164,8 @@ const UserDashboard: React.FC = () => {
         m.mobile?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         m.location?.address?.toLowerCase().includes(searchQuery.toLowerCase());
       const statusOk = statusFilter === 'all';
-      return within && match && statusOk;
+      const verifiedOk = !verifiedOnly || m.isVerified;
+      return within && match && statusOk && verifiedOk;
     });
     list.sort((a, b) => {
       switch (sortBy) {
@@ -158,7 +182,20 @@ const UserDashboard: React.FC = () => {
       }
     });
     return list;
-  }, [mechanics, filterDistance, searchQuery, statusFilter, sortBy]);
+  }, [mechanics, filterDistance, customRadiusKm, searchQuery, verifiedOnly, statusFilter, sortBy]);
+
+  // Smart suggestions: top 3 by composite score (closer + higher rating)
+  const suggestions = useMemo(() => {
+    const scored = [...filteredSorted].map((m) => {
+      const dist = m.distanceKm ?? 50; // cap if unknown
+      const normDist = Math.min(dist / 20, 1); // 0..1 where 0=nearby
+      const normRating = m.rating / 5; // 0..1
+      const score = 0.6 * (1 - normDist) + 0.4 * normRating; // higher is better
+      return { m, score };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, 3).map((s) => s.m);
+  }, [filteredSorted]);
 
   const renderMechanicCard = (mechanic: MechanicItem) => {
     if (viewMode === 'grid') {
@@ -245,48 +282,82 @@ const UserDashboard: React.FC = () => {
     );
   };
 
+  // Initialize/Update Leaflet map for the map view
+  useEffect(() => {
+    if (viewMode !== 'map') return;
+    if (!mapRef.current) return;
+    const lat = coords.lat;
+    const lng = coords.lng;
+    const hasUser = typeof lat === 'number' && typeof lng === 'number';
+    if (!mapInstanceRef.current) {
+      mapInstanceRef.current = L.map(mapRef.current).setView(hasUser ? [lat!, lng!] : [28.6139, 77.2090], hasUser ? 13 : 11);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(mapInstanceRef.current);
+      markersLayerRef.current = L.layerGroup().addTo(mapInstanceRef.current);
+    }
+    // clear markers
+    markersLayerRef.current!.clearLayers();
+    // user marker
+    if (hasUser) {
+      L.circleMarker([lat!, lng!], { radius: 7, color: '#2563eb', fillColor: '#3b82f6', fillOpacity: 0.9, weight: 2 }).addTo(markersLayerRef.current!);
+    }
+    // mechanic markers (filtered list)
+    filteredSorted.forEach((m) => {
+      const mlat = Number(m.location?.latitude);
+      const mlng = Number(m.location?.longitude);
+      if (!isNaN(mlat) && !isNaN(mlng)) {
+        const marker = L.circleMarker([mlat, mlng], { radius: 6, color: m.isVerified ? '#16a34a' : '#6b7280', fillColor: m.isVerified ? '#22c55e' : '#9ca3af', fillOpacity: 0.9, weight: 2 });
+        marker.bindPopup(
+          `<div style="min-width:180px">
+            <div style="font-weight:600;margin-bottom:4px;">${m.name}</div>
+            <div style="font-size:12px;color:#555;">${m.location?.address ?? ''}</div>
+            <div style="font-size:12px;margin-top:4px;">Rating: ${m.rating.toFixed(1)} | ${m.totalServices} jobs</div>
+          </div>`
+        );
+        marker.addTo(markersLayerRef.current!);
+      }
+    });
+    // Fit bounds
+    try {
+      const pts: L.LatLngExpression[] = [];
+      if (hasUser) pts.push([lat!, lng!]);
+      filteredSorted.forEach((m) => {
+        const mlat = Number(m.location?.latitude);
+        const mlng = Number(m.location?.longitude);
+        if (!isNaN(mlat) && !isNaN(mlng)) pts.push([mlat, mlng]);
+      });
+      if (pts.length >= 1) {
+        const bounds = L.latLngBounds(pts as any);
+        mapInstanceRef.current!.fitBounds(bounds.pad(0.2));
+      }
+      setTimeout(() => mapInstanceRef.current!.invalidateSize(), 200);
+    } catch {}
+  }, [viewMode, filteredSorted, coords.lat, coords.lng]);
+
   const renderMapView = () => (
-    <div className="bg-gray-200 rounded-xl h-96 flex items-center justify-center">
-      <div className="text-center">
-        <MapIcon className="w-16 h-16 text-gray-500 mx-auto mb-4" />
-        <p className="text-gray-600 font-medium">Interactive Map View</p>
-        <p className="text-sm text-gray-500">Mechanic locations with real-time availability</p>
-        <div className="mt-4 grid grid-cols-2 gap-2 max-w-xs">
-          {mechanics.slice(0, 4).map((mechanic) => (
-            <div key={mechanic.id} className="bg-white p-2 rounded-lg text-xs">
-              <div className="flex items-center space-x-1">
-                <div className={`w-2 h-2 rounded-full ${mechanic.isVerified ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-                <p className="font-medium">{mechanic.name}</p>
-              </div>
-              <p className="text-gray-500">{mechanic.distanceKm != null ? `${mechanic.distanceKm}km` : '—'}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+    <div ref={mapRef} className="rounded-xl h-96 overflow-hidden border border-gray-200" />
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white border-b border-gray-200 px-4 py-4 sticky top-0 z-10">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gray-800">RoadGuard</h1>
-            <p className="text-sm text-gray-600">Roadside Assistance</p>
-          </div>
-          <div className="flex items-center space-x-3">
-            <button className="p-2 hover:bg-gray-100 rounded-lg">
-              <Bell className="w-5 h-5 text-gray-600" />
-            </button>
-            <UserMenu />
+    <div className="min-h-screen bg-gray-50 flex">
+      <SideNavigation userType="user" />
+      <div className="flex-1 lg:ml-64">
+        <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-800">Find Nearby Mechanics</h1>
+              <p className="text-gray-600">Get roadside assistance from verified mechanics</p>
+            </div>
+            <div className="flex items-center space-x-3">
+              <button className="p-2 hover:bg-gray-100 rounded-lg">
+                <Bell className="w-5 h-5 text-gray-600" />
+              </button>
+              <UserMenu />
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="px-4 py-6">
+        <div className="px-6 py-6">
         <motion.div className="mb-6" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">Find Nearby Mechanics</h2>
-          <p className="text-gray-600">Get roadside assistance from verified mechanics</p>
           <p className="text-sm text-gray-500 mt-1">Showing {mechanics.length} registered mechanic{mechanics.length !== 1 ? 's' : ''} from our network</p>
         </motion.div>
 
@@ -315,7 +386,7 @@ const UserDashboard: React.FC = () => {
 
         <motion.div className="mb-6" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
           <div className="flex items-center justify-between mb-4">
-            <div className="flex space-x-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <select value={filterDistance} onChange={(e) => setFilterDistance(e.target.value)} className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none">
                 <option value="2km">Within 2km</option>
                 <option value="5km">Within 5km</option>
@@ -323,6 +394,9 @@ const UserDashboard: React.FC = () => {
                 <option value="20km">Within 20km</option>
                 <option value="custom">Custom Range</option>
               </select>
+              {filterDistance === 'custom' && (
+                <input type="number" min={1} max={100} value={customRadiusKm} onChange={(e) => setCustomRadiusKm(Number(e.target.value) || 10)} className="w-32 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" placeholder="Radius (km)" />
+              )}
 
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none">
                 <option value="all">All Status</option>
@@ -330,6 +404,10 @@ const UserDashboard: React.FC = () => {
                 <option value="busy">Busy</option>
                 <option value="closed">Closed</option>
               </select>
+
+              <button onClick={() => setVerifiedOnly((v) => !v)} className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm ${verifiedOnly ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}>
+                <Filter className="w-4 h-4" /> Verified Only {verifiedOnly && <Check className="w-4 h-4" />}
+              </button>
 
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none">
                 <option value="distance">Sort by Distance</option>
@@ -372,6 +450,35 @@ const UserDashboard: React.FC = () => {
 
           {!loading && (
             <>
+              {/* Smart suggestions */}
+              {suggestions.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="text-sm text-gray-500 mb-2">Suggested for you</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {suggestions.map((s) => (
+                      <div key={s.id} className="bg-white rounded-xl p-4 border border-blue-100">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-semibold text-gray-800">{s.name}</p>
+                            <p className="text-xs text-gray-500">{s.location?.address || '—'}</p>
+                          </div>
+                          <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{s.distanceKm != null ? `${s.distanceKm} km` : 'Nearby'}</span>
+                        </div>
+                        <div className="mt-2 flex items-center gap-2 text-sm text-gray-600">
+                          <Star className="w-4 h-4 text-yellow-500 fill-current" />
+                          <span>{s.rating.toFixed(1)} • {s.totalServices} jobs</span>
+                        </div>
+                        <div className="mt-3 flex items-center gap-2">
+                          <a onClick={(e) => e.stopPropagation()} href={s.mobile ? `tel:${s.mobile}` : undefined} className="px-3 py-1 bg-blue-600 text-white rounded text-xs disabled:bg-gray-300" aria-disabled={!s.mobile}>Call</a>
+                          <button onClick={() => navigate('/request', { state: { mechanicId: s.id, mechanicName: s.name } })} className="px-3 py-1 border border-gray-300 rounded text-xs">Request</button>
+                          <button onClick={() => navigate(`/workshop/${s.id}`)} className="px-3 py-1 border border-gray-300 rounded text-xs">View</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {viewMode === 'map' ? (
                 renderMapView()
               ) : (
@@ -396,6 +503,47 @@ const UserDashboard: React.FC = () => {
           )}
         </motion.div>
 
+        {/* DIY Quick Help */}
+        <motion.div className="mt-8" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55 }}>
+          <div className="bg-white rounded-xl p-4 shadow-md">
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">DIY Quick Help</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <details className="bg-gray-50 rounded-lg p-3">
+                <summary className="font-medium cursor-pointer">Flat Tire</summary>
+                <ul className="list-disc ml-5 mt-2 text-gray-600">
+                  <li>Park safely and engage handbrake.</li>
+                  <li>Use the spare wheel and jack from your toolkit.</li>
+                  <li>Tighten bolts in a star pattern.</li>
+                </ul>
+              </details>
+              <details className="bg-gray-50 rounded-lg p-3">
+                <summary className="font-medium cursor-pointer">Battery Jump</summary>
+                <ul className="list-disc ml-5 mt-2 text-gray-600">
+                  <li>Connect red to dead+, red to donor+.</li>
+                  <li>Connect black to donor-, black to car ground.</li>
+                  <li>Start donor, then your car. Remove in reverse order.</li>
+                </ul>
+              </details>
+              <details className="bg-gray-50 rounded-lg p-3">
+                <summary className="font-medium cursor-pointer">Out of Fuel</summary>
+                <ul className="list-disc ml-5 mt-2 text-gray-600">
+                  <li>Don’t crank repeatedly; avoid draining battery.</li>
+                  <li>Move vehicle to a safe shoulder if possible.</li>
+                  <li>Use the app to request “Fuel Delivery”.</li>
+                </ul>
+              </details>
+              <details className="bg-gray-50 rounded-lg p-3">
+                <summary className="font-medium cursor-pointer">Locked Out</summary>
+                <ul className="list-disc ml-5 mt-2 text-gray-600">
+                  <li>Check for a spare key or remote app access.</li>
+                  <li>Avoid prying windows to prevent damage.</li>
+                  <li>Request a professional lockout service.</li>
+                </ul>
+              </details>
+            </div>
+          </div>
+        </motion.div>
+
         <motion.div className="mt-8 grid grid-cols-2 gap-4" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
           <button onClick={() => navigate('/request')} className="bg-blue-600 text-white p-4 rounded-xl shadow-md flex items-center justify-center space-x-2 hover:bg-blue-700 transition-colors">
             <AlertCircle className="w-5 h-5" />
@@ -406,6 +554,7 @@ const UserDashboard: React.FC = () => {
             <span>Track Request</span>
           </button>
         </motion.div>
+        </div>
       </div>
     </div>
   );

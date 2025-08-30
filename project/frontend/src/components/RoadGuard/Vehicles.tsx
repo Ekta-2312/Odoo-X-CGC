@@ -4,6 +4,7 @@ import { api } from '../../lib/api';
 import { Plus, Trash2, Edit2, ChevronLeft, Car, Bike, Bus, Star, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import UserMenu from './UserMenu';
+import SideNavigation from './SideNavigation';
 
 interface Vehicle {
   _id?: string;
@@ -98,18 +99,20 @@ const Vehicles: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white border-b border-gray-200 px-4 py-4 sticky top-0 z-10">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center">
-            <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-lg mr-2"><ChevronLeft /></button>
-            <h1 className="text-xl font-semibold text-gray-800">My Vehicles</h1>
+    <div className="min-h-screen bg-gray-50 flex">
+      <SideNavigation userType="user" />
+      <div className="flex-1 lg:ml-64">
+        <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-lg mr-2"><ChevronLeft /></button>
+              <h1 className="text-2xl font-semibold text-gray-800">My Vehicles</h1>
+            </div>
+            <UserMenu />
           </div>
-          <UserMenu />
         </div>
-      </div>
 
-      <div className="p-4 space-y-6 max-w-2xl mx-auto">
+        <div className="p-6 space-y-6 max-w-3xl">
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
           <h2 className="font-semibold mb-3">Add / Edit Vehicle</h2>
           <div className="grid grid-cols-2 gap-3">
@@ -167,6 +170,7 @@ const Vehicles: React.FC = () => {
           {list.length === 0 && (
             <div className="text-center text-gray-500">No vehicles yet. Add your first vehicle above.</div>
           )}
+        </div>
         </div>
       </div>
     </div>

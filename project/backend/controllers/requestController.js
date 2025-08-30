@@ -7,6 +7,14 @@ exports.setSocket = (socketIo) => {
   io = socketIo;
 };
 
+// Simple notification stub (SMS/WhatsApp integration point)
+const notify = async ({ toUserId, toMechanicId, type, data }) => {
+  try {
+    // TODO: integrate SMS/WhatsApp provider (e.g., Twilio) here
+    console.log('[Notify]', { toUserId, toMechanicId, type, data });
+  } catch {}
+};
+
 exports.createRequest = async (req, res) => {
   try {
     const {
@@ -38,7 +46,7 @@ exports.createRequest = async (req, res) => {
     });
 
     // Assign selected mechanic if provided; else simple auto-assignment fallback
-    if (mechanicId) {
+  if (mechanicId) {
       const mech = await Register.findById(mechanicId);
       if (mech && mech.role === 'mechanic') {
         doc = await ServiceRequest.findByIdAndUpdate(
@@ -52,24 +60,10 @@ exports.createRequest = async (req, res) => {
           { new: true }
         );
       }
-    } else {
-      // Simple auto-assignment demo: pick any mechanic
-      const mechanic = await Register.findOne({ role: 'mechanic' });
-      if (mechanic) {
-        doc = await ServiceRequest.findByIdAndUpdate(
-          doc._id,
-          {
-            mechanicId: mechanic._id,
-            status: 'assigned',
-            etaMinutes: 20,
-            $push: { history: { status: 'assigned', by: req.user.userId } },
-          },
-          { new: true }
-        );
-      }
-    }
+  }
 
-    io?.emit('request:new', doc);
+  io?.emit('request:new', doc);
+  notify({ toUserId: doc.userId, type: 'request_created', data: { id: doc._id } });
     return res.status(201).json(doc);
   } catch (e) {
     return res.status(400).json({ error: e.message });
@@ -88,12 +82,26 @@ exports.listMyRequests = async (req, res) => {
 
 exports.listPending = async (req, res) => {
   try {
-    const docs = await ServiceRequest.find({ status: 'submitted' })
+  // Treat freshly submitted, admin-assigned, and mechanic-accepted as pending
+  const docs = await ServiceRequest.find({ status: { $in: ['submitted', 'assigned', 'accepted'] } })
       .sort({ createdAt: -1 })
       .limit(100);
     return res.json(docs);
   } catch (e) {
     return res.status(400).json({ error: e.message });
+  }
+};
+
+exports.listAll = async (req, res) => {
+  try {
+    const docs = await ServiceRequest.find({})
+      .sort({ createdAt: -1 })
+      .limit(200);
+    return res.json(docs);
+  } catch (e) {
+    console.error('listAll error:', e);
+    // Be resilient: return empty list instead of failing the UI
+    return res.json([]);
   }
 };
 
@@ -119,7 +127,8 @@ exports.assignMechanic = async (req, res) => {
     );
 
     if (!doc) return res.status(404).json({ error: 'Not found' });
-    io?.emit('request:updated', doc);
+  io?.emit('request:updated', doc);
+  notify({ toUserId: doc.userId, toMechanicId: mechanicId, type: 'assigned', data: { id } });
     return res.json(doc);
   } catch (e) {
     return res.status(400).json({ error: e.message });
@@ -142,7 +151,8 @@ exports.updateStatus = async (req, res) => {
       { new: true }
     );
     if (!doc) return res.status(404).json({ error: 'Not found' });
-    io?.emit('request:updated', doc);
+  io?.emit('request:updated', doc);
+  notify({ toUserId: doc.userId, toMechanicId: doc.mechanicId, type: `status_${status}`, data: { id } });
     return res.json(doc);
   } catch (e) {
     return res.status(400).json({ error: e.message });

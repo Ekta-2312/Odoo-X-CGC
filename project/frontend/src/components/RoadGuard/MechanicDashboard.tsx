@@ -14,6 +14,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useAuth } from '../../hooks/useAuth';
 import { useLocation } from 'react-router-dom';
+import { getSocket } from '../../lib/socket';
 
 const MechanicDashboard: React.FC = () => {
   const { logout } = useAuth();
@@ -34,6 +35,7 @@ const MechanicDashboard: React.FC = () => {
   const mapInstanceRef = useRef<L.Map | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
   const routerLocation = useLocation();
+  const geocodeCacheRef = useRef<Record<string, { lat: number; lng: number }>>({});
 
   const activeTab = useMemo<'requests' | 'history'>(() => {
     const params = new URLSearchParams(routerLocation.search);
@@ -45,7 +47,15 @@ const MechanicDashboard: React.FC = () => {
     loadRequests();
     // Set up real-time updates (every 30 seconds)
     const interval = setInterval(loadRequests, 30000);
-    return () => clearInterval(interval);
+    const s = getSocket();
+    const onUpdate = () => loadRequests();
+    s.on('request:new', onUpdate);
+    s.on('request:updated', onUpdate);
+    return () => {
+      clearInterval(interval);
+      s.off('request:new', onUpdate);
+      s.off('request:updated', onUpdate);
+    };
   }, []);
 
   const loadRequests = async () => {
@@ -120,22 +130,77 @@ const MechanicDashboard: React.FC = () => {
     if (!mapRef.current) return;
     if (!selectedRequest) return;
     const { location } = selectedRequest;
-    if (!location || (!location.latitude && !location.longitude)) return;
+    if (!location) return;
 
-    if (!mapInstanceRef.current) {
-      mapInstanceRef.current = L.map(mapRef.current).setView([location.latitude!, location.longitude!], 14);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(mapInstanceRef.current);
+    const renderMap = (lat: number, lng: number) => {
+      if (!mapInstanceRef.current) {
+        mapInstanceRef.current = L.map(mapRef.current as HTMLDivElement).setView([lat, lng], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(mapInstanceRef.current);
+        setTimeout(() => mapInstanceRef.current && mapInstanceRef.current.invalidateSize(), 0);
+      }
+      const map = mapInstanceRef.current!;
+      if (!userMarkerRef.current) {
+        userMarkerRef.current = L.marker([lat, lng], { title: 'User' }).addTo(map);
+      } else {
+        userMarkerRef.current.setLatLng([lat, lng]);
+      }
+      map.setView([lat, lng], 14);
+    };
+
+    const lat = Number((location as any).latitude);
+    const lng = Number((location as any).longitude);
+    const hasCoords = !isNaN(lat) && !isNaN(lng);
+
+    if (hasCoords) {
+      renderMap(lat, lng);
+      return;
     }
-    const map = mapInstanceRef.current;
-    if (!userMarkerRef.current) {
-      userMarkerRef.current = L.marker([location.latitude!, location.longitude!], { title: 'User' }).addTo(map!);
-    } else {
-      userMarkerRef.current.setLatLng([location.latitude!, location.longitude!]);
+
+    // Fallback: geocode address
+    const addr = (location as any).address as string | undefined;
+    const key = selectedRequest._id;
+    if (!addr) return; // nothing to show
+    const cached = geocodeCacheRef.current[key];
+    if (cached) {
+      renderMap(cached.lat, cached.lng);
+      return;
     }
-    map!.setView([location.latitude!, location.longitude!], 14);
+    let cancelled = false;
+    const geocode = async () => {
+      try {
+        const q = encodeURIComponent(addr);
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}`);
+        if (!res.ok) return;
+        const arr = await res.json();
+        if (cancelled) return;
+        if (Array.isArray(arr) && arr.length) {
+          const gLat = Number(arr[0].lat);
+          const gLng = Number(arr[0].lon);
+          if (!isNaN(gLat) && !isNaN(gLng)) {
+            geocodeCacheRef.current[key] = { lat: gLat, lng: gLng };
+            renderMap(gLat, gLng);
+          }
+        }
+      } catch {}
+    };
+    geocode();
+    return () => { cancelled = true; };
   }, [selectedRequest]);
+
+  const openInMaps = () => {
+    const loc = selectedRequest?.location as any;
+    const lat = Number(loc?.latitude);
+    const lng = Number(loc?.longitude);
+    if (!isNaN(lat) && !isNaN(lng)) {
+      window.open(`https://www.google.com/maps?q=${lat},${lng}`, '_blank');
+      return;
+    }
+    if (loc?.address) {
+      window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc.address)}`,'_blank');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -364,7 +429,19 @@ const MechanicDashboard: React.FC = () => {
                     <h4 className="font-medium text-gray-800 mb-2">Location</h4>
                     <div className="flex items-center space-x-2">
                       <MapPin className="w-4 h-4 text-gray-500" />
-                      <span className="text-sm text-gray-700">{selectedRequest.location?.address || 'GPS Coordinates Available'}</span>
+                      <span className="text-sm text-gray-700">
+                        {selectedRequest.location?.address || 'GPS Coordinates Available'}
+                        {Number((selectedRequest.location as any)?.latitude) && Number((selectedRequest.location as any)?.longitude) ? (
+                          <>
+                            {' '}
+                            (<span className="font-mono">
+                              {Number((selectedRequest.location as any)?.latitude).toFixed(5)},
+                              {' '}
+                              {Number((selectedRequest.location as any)?.longitude).toFixed(5)}
+                            </span>)
+                          </>
+                        ) : null}
+                      </span>
                     </div>
                     <div ref={mapRef} className="w-full h-56 rounded-lg mt-3 overflow-hidden" />
                   </div>
@@ -411,7 +488,7 @@ const MechanicDashboard: React.FC = () => {
                         <Phone className="w-4 h-4" />
                         <span>Call Customer</span>
                       </button>
-                      <button className="flex-1 bg-green-100 text-green-600 py-2 rounded-lg font-medium hover:bg-green-200 transition-colors flex items-center justify-center space-x-2">
+                      <button onClick={openInMaps} className="flex-1 bg-green-100 text-green-600 py-2 rounded-lg font-medium hover:bg-green-200 transition-colors flex items-center justify-center space-x-2">
                         <MapPin className="w-4 h-4" />
                         <span>View Location</span>
                       </button>

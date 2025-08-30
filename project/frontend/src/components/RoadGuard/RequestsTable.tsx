@@ -13,10 +13,12 @@ interface Request {
 
 interface RequestsTableProps {
   requests: Request[];
-  onAssign?: (requestId: string) => void;
+  onAssign?: (requestId: string, mechanicId: string) => void;
+  mechanics?: Array<{ id: string; name: string }>; // optional list for assignment
 }
 
-const RequestsTable: React.FC<RequestsTableProps> = ({ requests, onAssign }) => {
+const RequestsTable: React.FC<RequestsTableProps> = ({ requests, onAssign, mechanics }) => {
+  const [selected, setSelected] = React.useState<Record<string, string>>({});
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed':
@@ -35,7 +37,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, onAssign }) => 
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-800">Service Requests</h3>
         {onAssign && (
-          <span className="text-sm text-gray-500">Click Assign on a row</span>
+          <span className="text-sm text-gray-500">Assign a mechanic to pending requests</span>
         )}
       </div>
       
@@ -97,14 +99,25 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, onAssign }) => 
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="flex space-x-2">
-                      {onAssign && (
-                        <button
-                          onClick={() => onAssign(request.id)}
-                          className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
-                        >
-                          Assign
-                        </button>
+                    <div className="flex items-center space-x-2">
+                      {onAssign && mechanics && mechanics.length > 0 && (
+                        <>
+                          <select
+                            value={selected[request.id] || mechanics[0].id}
+                            onChange={(e) => setSelected((prev) => ({ ...prev, [request.id]: e.target.value }))}
+                            className="border border-gray-300 rounded px-2 py-1 text-xs"
+                          >
+                            {mechanics.map((m) => (
+                              <option key={m.id} value={m.id}>{m.name}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => onAssign(request.id, selected[request.id] || mechanics[0].id)}
+                            className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
+                          >
+                            Assign
+                          </button>
+                        </>
                       )}
                       <button className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
                         <Phone className="w-4 h-4" />

@@ -12,6 +12,9 @@ router.get('/me', auth(['user']), ctrl.listMyRequests);
 // Admin: list pending
 router.get('/pending', auth(['admin']), ctrl.listPending);
 
+// Admin: list all requests
+router.get('/all', auth(['admin']), ctrl.listAll);
+
 // Admin: assign mechanic
 router.post('/:id/assign', auth(['admin']), ctrl.assignMechanic);
 

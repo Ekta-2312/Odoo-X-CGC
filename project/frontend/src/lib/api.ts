@@ -15,6 +15,15 @@ export const api = {
     if (!res.ok) throw new Error((await res.text()) || 'Request failed');
     return json(res);
   },
+  patch: async (path: string, body?: any) => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) throw new Error((await res.text()) || 'Request failed');
+    return json(res);
+  },
   post: async (path: string, body?: any) => {
     const res = await fetch(`${API_BASE}${path}`, {
       method: 'POST',
