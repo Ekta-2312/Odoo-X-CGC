@@ -13,9 +13,10 @@ interface Request {
 
 interface RequestsTableProps {
   requests: Request[];
+  onAssign?: (requestId: string) => void;
 }
 
-const RequestsTable: React.FC<RequestsTableProps> = ({ requests }) => {
+const RequestsTable: React.FC<RequestsTableProps> = ({ requests, onAssign }) => {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed':
@@ -33,9 +34,9 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests }) => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-800">Service Requests</h3>
-        <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200">
-          New Assignment
-        </button>
+        {onAssign && (
+          <span className="text-sm text-gray-500">Click Assign on a row</span>
+        )}
       </div>
       
       <div className="bg-white rounded-lg overflow-hidden">
@@ -97,6 +98,14 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests }) => {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex space-x-2">
+                      {onAssign && (
+                        <button
+                          onClick={() => onAssign(request.id)}
+                          className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
+                        >
+                          Assign
+                        </button>
+                      )}
                       <button className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
                         <Phone className="w-4 h-4" />
                       </button>

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, User, Phone, Car, Wrench, Settings } from 'lucide-react';
+import { ArrowLeft, User, Wrench, Settings } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 
@@ -12,11 +12,15 @@ const Registration: React.FC = () => {
     vehicleModel: '',
     vehicleYear: '',
     licensePlate: '',
-    role: 'user'
+    role: 'user',
+    latitude: '',
+    longitude: '',
+    address: ''
   });
   const navigate = useNavigate();
   const location = useLocation();
   const email = location.state?.email || 'user@gmail.com';
+  const geoAttempted = useRef(false);
 
   const roles = [
     { 
@@ -68,7 +72,12 @@ const Registration: React.FC = () => {
             year: formData.vehicleYear,
             licensePlate: formData.licensePlate,
             vehicleType: 'car'
-          } : {}
+          } : {},
+          location: formData.role === 'mechanic' ? {
+            latitude: formData.latitude ? Number(formData.latitude) : undefined,
+            longitude: formData.longitude ? Number(formData.longitude) : undefined,
+            address: formData.address || undefined,
+          } : undefined
         })
       });
 
@@ -102,6 +111,30 @@ const Registration: React.FC = () => {
       toast.error('Network error. Please try again.');
     }
   };
+
+  // Auto-detect location for mechanics
+  useEffect(() => {
+    if (formData.role !== 'mechanic') return;
+    if (geoAttempted.current) return;
+    // If lat/lng already present, skip
+    if (formData.latitude && formData.longitude) return;
+    if (!navigator.geolocation) return;
+    geoAttempted.current = true;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setFormData((prev) => ({
+          ...prev,
+          latitude: String(pos.coords.latitude),
+          longitude: String(pos.coords.longitude),
+        }));
+        toast.success('Detected your current location');
+      },
+      () => {
+        // Non-blocking: user denied or error; keep fields empty
+      },
+      { enableHighAccuracy: true, maximumAge: 60000, timeout: 10000 }
+    );
+  }, [formData.role]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center p-4">
@@ -184,6 +217,64 @@ const Registration: React.FC = () => {
               maxLength={10}
             />
           </div>
+
+          {/* Mechanic Location (only for mechanics) */}
+          {formData.role === 'mechanic' && (
+            <motion.div 
+              className="space-y-3"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              transition={{ duration: 0.25 }}
+            >
+              <label className="block text-sm font-semibold text-gray-700">Workshop Location</label>
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  placeholder="Latitude"
+                  value={formData.latitude}
+                  onChange={(e) => setFormData({ ...formData, latitude: e.target.value })}
+                  className="input-field"
+                />
+                <input
+                  type="text"
+                  placeholder="Longitude"
+                  value={formData.longitude}
+                  onChange={(e) => setFormData({ ...formData, longitude: e.target.value })}
+                  className="input-field"
+                />
+              </div>
+              <input
+                type="text"
+                placeholder="Address (optional)"
+                value={formData.address}
+                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                className="input-field"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                      (pos) => {
+                        setFormData({
+                          ...formData,
+                          latitude: String(pos.coords.latitude),
+                          longitude: String(pos.coords.longitude),
+                        });
+                        toast.success('Location captured');
+                      },
+                      () => toast.error('Geolocation permission denied')
+                    );
+                  } else {
+                    toast.error('Geolocation not supported');
+                  }
+                }}
+                className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700"
+              >
+                Use Current Location
+              </button>
+            </motion.div>
+          )}
 
           {/* Vehicle Information (only for users) */}
           {formData.role === 'user' && (

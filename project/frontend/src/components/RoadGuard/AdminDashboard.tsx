@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   BarChart3, 
   Users, 
@@ -12,55 +12,71 @@ import {
 import SideNavigation from './SideNavigation';
 import StatsCard from './StatsCard';
 import RequestsTable from './RequestsTable';
+import { api } from '../../lib/api';
+import toast from 'react-hot-toast';
 
 const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview');
 
-  const stats = [
+  const stats: Array<{label:string;value:string;change:string;icon:any;color:'blue'|'green'|'yellow'|'purple'}> = [
     { label: 'Total Requests', value: '1,247', change: '+12%', icon: ClipboardList, color: 'blue' },
     { label: 'Active Workers', value: '89', change: '+5%', icon: Users, color: 'green' },
     { label: 'Pending Requests', value: '23', change: '-8%', icon: Clock, color: 'yellow' },
     { label: 'Revenue Today', value: '₹45,670', change: '+18%', icon: DollarSign, color: 'purple' }
   ];
 
-  const recentRequests = [
-    {
-      id: 'RG123456',
-      customer: 'Amit Sharma',
-      service: 'Engine Breakdown',
-      location: 'Andheri East',
-      mechanic: 'Rajesh Kumar',
-      status: 'in-progress',
-      time: '2:30 PM'
-    },
-    {
-      id: 'RG123457',
-      customer: 'Sunita Verma',
-      service: 'Tire Change',
-      location: 'Borivali West',
-      mechanic: 'Suresh Rathi',
-      status: 'completed',
-      time: '1:15 PM'
-    },
-    {
-      id: 'RG123458',
-      customer: 'Rahul Joshi',
-      service: 'Battery Replacement',
-      location: 'Dadar',
-      mechanic: 'Amit Patil',
-      status: 'pending',
-      time: '3:00 PM'
-    },
-    {
-      id: 'RG123459',
-      customer: 'Priya Singh',
-      service: 'Oil Change',
-      location: 'Juhu',
-      mechanic: 'Rajiv Mehta',
-      status: 'in-progress',
-      time: '4:45 PM'
+  const [recentRequests, setRecentRequests] = useState<any[]>([]);
+  const [mechanics, setMechanics] = useState<any[]>([]);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [pending, mechs] = await Promise.all([
+          api.get('/api/requests/pending'),
+          api.get('/api/workshops'),
+        ]);
+        setRecentRequests(
+          pending.map((r: any) => ({
+            id: r._id,
+            customer: r.userId?.name || 'User',
+            service: Array.isArray(r.serviceTypes) && r.serviceTypes.length ? r.serviceTypes.join(', ') : r.serviceType,
+            location: r.location?.address || 'GPS',
+            mechanic: r.mechanicId ? 'Assigned' : '—',
+            status: r.status,
+            time: new Date(r.createdAt).toLocaleTimeString(),
+          }))
+        );
+        setMechanics(mechs);
+      } catch (e) {
+        toast.error('Failed to load pending requests');
+      }
+    };
+    load();
+  }, []);
+
+  const handleAssign = async (requestId: string) => {
+    try {
+      const mechanic = mechanics[0];
+      if (!mechanic) return toast.error('No mechanics available');
+      await api.post(`/api/requests/${requestId}/assign`, { mechanicId: mechanic.id, etaMinutes: 20 });
+      toast.success('Assigned');
+      // refresh list
+      const pending = await api.get('/api/requests/pending');
+      setRecentRequests(
+        pending.map((r: any) => ({
+          id: r._id,
+          customer: r.userId?.name || 'User',
+          service: Array.isArray(r.serviceTypes) && r.serviceTypes.length ? r.serviceTypes.join(', ') : r.serviceType,
+          location: r.location?.address || 'GPS',
+          mechanic: r.mechanicId ? 'Assigned' : '—',
+          status: r.status,
+          time: new Date(r.createdAt).toLocaleTimeString(),
+        }))
+      );
+    } catch (e) {
+      toast.error('Assignment failed');
     }
-  ];
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -96,7 +112,7 @@ const AdminDashboard: React.FC = () => {
             <div className="px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-800">Recent Requests</h2>
             </div>
-            <RequestsTable requests={recentRequests} />
+            <RequestsTable requests={recentRequests} onAssign={handleAssign} />
           </div>
         </div>
       </div>

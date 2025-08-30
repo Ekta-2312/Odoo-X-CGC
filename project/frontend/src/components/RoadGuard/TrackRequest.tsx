@@ -1,58 +1,78 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, 
-  Phone, 
-  MessageCircle, 
-  MapPin, 
-  Clock, 
-  User,
-  Star,
-  Navigation,
-  Zap,
-  CheckCircle
-} from 'lucide-react';
-import { motion } from 'framer-motion';
+import { ArrowLeft, Phone, MessageCircle, MapPin, Star } from 'lucide-react';
 import StatusProgress from './StatusProgress';
 import toast from 'react-hot-toast';
+import { api } from '../../lib/api';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 const TrackRequest: React.FC = () => {
   const navigate = useNavigate();
-  const [currentStatus, setCurrentStatus] = useState(2);
-  const [eta, setEta] = useState(15);
+  const [currentStatus, setCurrentStatus] = useState(0);
+  const [eta, setEta] = useState(0);
+  const [requestId] = useState<string | null>(localStorage.getItem('currentRequestId'));
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const mechanicMarkerRef = useRef<L.Marker | null>(null);
+  const userMarkerRef = useRef<L.Marker | null>(null);
+  const [coords, setCoords] = useState<{ user?: {lat:number;lng:number}; mech?: {lat:number;lng:number} }>({});
+  const [mechanicName, setMechanicName] = useState<string>('Awaiting assignment');
   
-  const mechanic = {
-    name: 'Rajesh Kumar',
+  // Optional UI-only placeholders
+  const mechanicUi = {
     rating: 4.8,
-    phone: '+91 98765 43210',
-    vehicle: 'Blue Toyota Service Van',
-    experience: '8 years',
-    completedJobs: 1247
+    phone: 'Hidden',
+    vehicle: 'Service Vehicle',
+    experience: '—',
+    completedJobs: 0,
   };
 
   const statuses = [
-    { label: 'Request Submitted', completed: true, time: '2:30 PM' },
-    { label: 'Mechanic Assigned', completed: true, time: '2:32 PM' },
-    { label: 'En Route', completed: true, time: '2:35 PM' },
+    { label: 'Request Submitted', completed: false, time: '' },
+    { label: 'Mechanic Assigned', completed: false, time: '' },
+    { label: 'En Route', completed: false, time: '' },
     { label: 'Arrived at Location', completed: false, time: '' },
     { label: 'Service in Progress', completed: false, time: '' },
     { label: 'Completed', completed: false, time: '' }
   ];
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentStatus(prev => {
-        if (prev < statuses.length - 1) {
-          return prev + 1;
-        }
-        return prev;
-      });
-      
-      setEta(prev => Math.max(0, prev - 1));
-    }, 3000);
+  // no change to fetching, but UI can read multiple service types from API response if needed later
 
-    return () => clearInterval(timer);
-  }, []);
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        if (!requestId) return;
+        const data = await api.get(`/api/requests/${requestId}`);
+  setEta(data.etaMinutes || 0);
+        // Map server statuses to our progress steps: submitted->0, assigned/accepted->1/2, in-progress->4, completed->5
+        const stepMap = (s: string) => {
+          switch (s) {
+            case 'submitted': return 0;
+            case 'assigned': return 1;
+            case 'accepted': return 2;
+            case 'in-progress': return 4;
+            case 'completed': return 5;
+            default: return 0;
+          }
+        };
+        setCurrentStatus(stepMap(data.status));
+
+        // Extract coords for map
+        const u = data.location;
+        const m = data.mechanicId?.location || null;
+        const userPos = u && (u.latitude || u.longitude) ? { lat: u.latitude, lng: u.longitude } : undefined;
+        const mechPos = m && (m.latitude || m.longitude) ? { lat: m.latitude, lng: m.longitude } : undefined;
+        setCoords({ user: userPos, mech: mechPos });
+
+  // Mechanic name from API (populated in backend)
+  setMechanicName(data.mechanicId?.name || 'Awaiting assignment');
+      } catch (e) {}
+    };
+    fetchStatus();
+    const t = setInterval(fetchStatus, 5000);
+    return () => clearInterval(t);
+  }, [requestId]);
 
   const handleCall = () => {
     toast.success('Calling mechanic...');
@@ -65,6 +85,42 @@ const TrackRequest: React.FC = () => {
   const handleShare = () => {
     toast.success('Location shared with family');
   };
+
+  // Initialize and update Leaflet map
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (!mapInstanceRef.current) {
+      mapInstanceRef.current = L.map(mapRef.current).setView([20.5937, 78.9629], 5);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(mapInstanceRef.current);
+    }
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (coords.user) {
+      if (!userMarkerRef.current) {
+        userMarkerRef.current = L.marker([coords.user.lat, coords.user.lng], { title: 'You' }).addTo(map);
+      } else {
+        userMarkerRef.current.setLatLng([coords.user.lat, coords.user.lng]);
+      }
+    }
+
+    if (coords.mech) {
+      if (!mechanicMarkerRef.current) {
+        mechanicMarkerRef.current = L.marker([coords.mech.lat, coords.mech.lng], { title: 'Mechanic' }).addTo(map);
+      } else {
+        mechanicMarkerRef.current.setLatLng([coords.mech.lat, coords.mech.lng]);
+      }
+    }
+
+    if (coords.user && coords.mech) {
+      const group = L.featureGroup([userMarkerRef.current!, mechanicMarkerRef.current!]);
+      map.fitBounds(group.getBounds(), { padding: [40, 40] });
+    } else if (coords.user) {
+      map.setView([coords.user.lat, coords.user.lng], 14);
+    }
+  }, [coords]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -100,11 +156,11 @@ const TrackRequest: React.FC = () => {
               />
             </div>
             <div className="flex-1">
-              <h3 className="text-xl font-semibold text-gray-800">{mechanic.name}</h3>
+              <h3 className="text-xl font-semibold text-gray-800">{mechanicName}</h3>
               <div className="flex items-center space-x-2 text-gray-600">
                 <Star className="w-5 h-5 text-yellow-500" />
-                <span className="text-sm font-medium">{mechanic.rating}</span>
-                <span className="text-xs">({mechanic.completedJobs} jobs)</span>
+                <span className="text-sm font-medium">{mechanicUi.rating}</span>
+                <span className="text-xs">({mechanicUi.completedJobs} jobs)</span>
               </div>
               <div className="flex items-center space-x-4 mt-2">
                 <button 
@@ -128,11 +184,7 @@ const TrackRequest: React.FC = () => {
 
         <div className="bg-white shadow rounded-lg p-4">
           <h2 className="text-lg font-semibold text-gray-800 mb-4">Service Status</h2>
-          <StatusProgress 
-            steps={statuses} 
-            currentStep={currentStatus} 
-            eta={eta} 
-          />
+          <StatusProgress statuses={statuses} currentStatus={currentStatus} />
         </div>
 
         <div className="bg-white shadow rounded-lg p-4">
@@ -159,6 +211,10 @@ const TrackRequest: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+        <div className="bg-white shadow rounded-lg p-4">
+          <h2 className="text-lg font-semibold text-gray-800 mb-2">Map</h2>
+          <div ref={mapRef} className="w-full h-64 rounded-lg overflow-hidden" />
         </div>
       </div>
     </div>

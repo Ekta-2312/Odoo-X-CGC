@@ -244,14 +244,14 @@ exports.verifyOtp = async (req, res) => {
 
 exports.completeRegistration = async (req, res) => {
   try {
-    const { email, name, mobile, role = 'user', vehicleDetails = {} } = req.body;
+  const { email, name, mobile, role = 'user', vehicleDetails = {}, location } = req.body;
     const storedOtpData = otpStore.get(email);
 
     if (!storedOtpData || !storedOtpData.verified) {
       return res.status(400).json({ error: 'Email not verified' });
     }
 
-    let userData = {
+  let userData = {
       email,
       name,
       mobile,
@@ -268,6 +268,15 @@ exports.completeRegistration = async (req, res) => {
         name: name || storedOtpData.googleData.name,
         provider: 'google',
         googleId: storedOtpData.googleData.id
+      };
+    }
+
+    // If mechanic, persist geolocation when provided
+    if (role === 'mechanic' && location && (location.latitude || location.longitude || location.address)) {
+      userData.location = {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        address: location.address,
       };
     }
 
