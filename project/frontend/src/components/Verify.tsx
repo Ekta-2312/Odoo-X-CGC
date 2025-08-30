@@ -117,7 +117,7 @@ export const Verify: React.FC = () => {
         
         // Show debug info in development
         if (data.expected && data.received) {
-          setError(`Invalid OTP. Expected: ${data.expected}, Received: ${data.received}`);
+          setError("Invalid OTP.");
         } else {
           setError(data.error || 'Invalid OTP. Please check the 6-digit code from your email.');
         }
@@ -259,12 +259,12 @@ export const Verify: React.FC = () => {
             )}
           </div>
 
-          {/* Show current OTP for debugging */}
+          {/* Show current OTP for debugging
           {process.env.NODE_ENV === 'development' && otp && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2">
               <p className="text-xs text-yellow-800">Debug: OTP entered = "{otp}"</p>
             </div>
-          )}
+          )} */}
 
           {error && (
             <motion.div
