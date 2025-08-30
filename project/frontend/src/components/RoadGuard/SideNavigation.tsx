@@ -1,0 +1,89 @@
+import React from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { 
+  Home, 
+  ClipboardList, 
+  BarChart3, 
+  Settings, 
+  Users, 
+  Shield,
+  Car,
+  LogOut
+} from 'lucide-react';
+
+interface SideNavigationProps {
+  userType: 'mechanic' | 'admin';
+}
+
+const SideNavigation: React.FC<SideNavigationProps> = ({ userType }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const mechanicNavItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: Home, path: '/mechanic' },
+    { id: 'requests', label: 'My Requests', icon: ClipboardList, path: '/mechanic' },
+    { id: 'history', label: 'Service History', icon: BarChart3, path: '/mechanic' },
+    { id: 'settings', label: 'Settings', icon: Settings, path: '/mechanic' }
+  ];
+
+  const adminNavItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: Home, path: '/admin' },
+    { id: 'requests', label: 'All Requests', icon: ClipboardList, path: '/admin' },
+    { id: 'workers', label: 'Workers', icon: Users, path: '/admin' },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3, path: '/admin' },
+    { id: 'settings', label: 'Settings', icon: Settings, path: '/admin' }
+  ];
+
+  const navItems = userType === 'mechanic' ? mechanicNavItems : adminNavItems;
+
+  return (
+    <div className="fixed left-0 top-0 h-full w-64 bg-white border-r border-gray-200 z-30 hidden lg:block">
+      <div className="p-6 border-b border-gray-200">
+        <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-1">
+            <Shield className="w-8 h-8 text-blue-600" />
+            <Car className="w-6 h-6 text-orange-500" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-gray-800">RoadGuard</h2>
+            <p className="text-sm text-gray-600 capitalize">{userType} Portal</p>
+          </div>
+        </div>
+      </div>
+
+      <nav className="p-4 space-y-2">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = location.pathname === item.path;
+          
+          return (
+            <button
+              key={item.id}
+              onClick={() => navigate(item.path)}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${
+                isActive
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-800'
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+              <span className="font-medium">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      <div className="absolute bottom-4 left-4 right-4">
+        <button
+          onClick={() => navigate('/auth')}
+          className="w-full flex items-center space-x-3 px-4 py-3 text-gray-600 hover:bg-gray-100 hover:text-gray-800 rounded-xl transition-all duration-200"
+        >
+          <LogOut className="w-5 h-5" />
+          <span className="font-medium">Logout</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default SideNavigation;
