@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, AlertCircle, Star, Search, Grid, List, Map as MapIcon, Shield, TrendingUp, Share, Phone, Bell, Filter, Check } from 'lucide-react';
+import { MapPin, AlertCircle, Star, Search, Grid, List, Map as MapIcon, Shield, TrendingUp, Phone, Bell, Filter, Check } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { api } from '../../lib/api';
@@ -184,18 +184,7 @@ const UserDashboard: React.FC = () => {
     return list;
   }, [mechanics, filterDistance, customRadiusKm, searchQuery, verifiedOnly, statusFilter, sortBy]);
 
-  // Smart suggestions: top 3 by composite score (closer + higher rating)
-  const suggestions = useMemo(() => {
-    const scored = [...filteredSorted].map((m) => {
-      const dist = m.distanceKm ?? 50; // cap if unknown
-      const normDist = Math.min(dist / 20, 1); // 0..1 where 0=nearby
-      const normRating = m.rating / 5; // 0..1
-      const score = 0.6 * (1 - normDist) + 0.4 * normRating; // higher is better
-      return { m, score };
-    });
-    scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, 3).map((s) => s.m);
-  }, [filteredSorted]);
+  // Suggestions removed
 
   const renderMechanicCard = (mechanic: MechanicItem) => {
     if (viewMode === 'grid') {
@@ -271,8 +260,14 @@ const UserDashboard: React.FC = () => {
                 >
                   Request Service
                 </button>
-                <button onClick={(e) => e.stopPropagation()} className="text-xs border border-gray-300 px-2 py-1 rounded-lg hover:bg-gray-50">
-                  <Share className="w-3 h-3" />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/workshop/${mechanic.id}`);
+                  }}
+                  className="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700"
+                >
+                  View
                 </button>
               </div>
             </div>
@@ -450,34 +445,7 @@ const UserDashboard: React.FC = () => {
 
           {!loading && (
             <>
-              {/* Smart suggestions */}
-              {suggestions.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="text-sm text-gray-500 mb-2">Suggested for you</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {suggestions.map((s) => (
-                      <div key={s.id} className="bg-white rounded-xl p-4 border border-blue-100">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-semibold text-gray-800">{s.name}</p>
-                            <p className="text-xs text-gray-500">{s.location?.address || '—'}</p>
-                          </div>
-                          <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{s.distanceKm != null ? `${s.distanceKm} km` : 'Nearby'}</span>
-                        </div>
-                        <div className="mt-2 flex items-center gap-2 text-sm text-gray-600">
-                          <Star className="w-4 h-4 text-yellow-500 fill-current" />
-                          <span>{s.rating.toFixed(1)} • {s.totalServices} jobs</span>
-                        </div>
-                        <div className="mt-3 flex items-center gap-2">
-                          <a onClick={(e) => e.stopPropagation()} href={s.mobile ? `tel:${s.mobile}` : undefined} className="px-3 py-1 bg-blue-600 text-white rounded text-xs disabled:bg-gray-300" aria-disabled={!s.mobile}>Call</a>
-                          <button onClick={() => navigate('/request', { state: { mechanicId: s.id, mechanicName: s.name } })} className="px-3 py-1 border border-gray-300 rounded text-xs">Request</button>
-                          <button onClick={() => navigate(`/workshop/${s.id}`)} className="px-3 py-1 border border-gray-300 rounded text-xs">View</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* Suggestions removed as requested */}
 
               {viewMode === 'map' ? (
                 renderMapView()

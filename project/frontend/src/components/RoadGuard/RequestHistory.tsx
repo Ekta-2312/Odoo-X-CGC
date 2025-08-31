@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, 
@@ -9,74 +9,49 @@ import {
   Download
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { api } from '../../lib/api';
+import { getSocket } from '../../lib/socket';
+import toast from 'react-hot-toast';
 import UserMenu from './UserMenu';
 
 const RequestHistory: React.FC = () => {
   const navigate = useNavigate();
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState<'all' | 'completed' | 'pending' | 'cancelled'>('completed');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [requests, setRequests] = useState<any[]>([]);
 
-  const requests = [
-    {
-      id: 'RG123456',
-      service: 'Engine Breakdown',
-      workshop: 'AutoCare Plus',
-      mechanic: 'Rajesh Kumar',
-      date: '2024-01-15',
-      time: '2:30 PM',
-      status: 'completed',
-      cost: '₹1,417',
-      rating: 5,
-      duration: '45 min'
-    },
-    {
-      id: 'RG123457',
-      service: 'Oil Change',
-      workshop: 'Quick Lube',
-      mechanic: 'Suresh Raina',
-      date: '2024-02-10',
-      time: '1:00 PM',
-      status: 'pending',
-      cost: '₹450',
-      rating: 4,
-      duration: '30 min'
-    },
-    {
-      id: 'RG123458',
-      service: 'Tire Rotation',
-      workshop: 'Tread & Track',
-      mechanic: 'John Doe',
-      date: '2024-03-05',
-      time: '10:00 AM',
-      status: 'cancelled',
-      cost: '₹300',
-      rating: 3,
-      duration: '25 min'
-    },
-    {
-      id: 'RG123459',
-      service: 'Brake Inspection',
-      workshop: 'SafeStop',
-      mechanic: 'Jane Smith',
-      date: '2024-04-20',
-      time: '11:30 AM',
-      status: 'completed',
-      cost: '₹1,200',
-      rating: 5,
-      duration: '50 min'
-    },
-    {
-      id: 'RG123460',
-      service: 'Battery Replacement',
-      workshop: 'PowerPlus',
-      mechanic: 'Mike Johnson',
-      date: '2024-05-15',
-      time: '9:00 AM',
-      status: 'pending',
-      cost: '₹800',
-      rating: 4,
-      duration: '35 min'
+  const fetchHistory = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await api.get('/api/requests/me');
+      setRequests(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      const msg = e?.message || 'Failed to load history';
+      setError(msg);
+      toast.error('Could not load requests');
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
+
+  useEffect(() => {
+    fetchHistory();
+    const s = getSocket();
+    const refresh = () => fetchHistory();
+    s.on('request:new', refresh);
+    s.on('request:updated', refresh);
+    s.on('request:deleted', refresh);
+    s.on('request:deleted_many', refresh);
+    return () => {
+      s.off('request:new', refresh);
+      s.off('request:updated', refresh);
+      s.off('request:deleted', refresh);
+      s.off('request:deleted_many', refresh);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -100,9 +75,69 @@ const RequestHistory: React.FC = () => {
     }
   };
 
-  const filteredRequests = requests.filter(request => 
-    filter === 'all' || request.status === filter
-  );
+  const filteredRequests = useMemo(() => {
+    return (requests || []).filter((r) =>
+      filter === 'all' ? true : r.status === filter
+    );
+  }, [requests, filter]);
+
+  const formatRupees = (amount?: string | number) => {
+    if (amount === undefined || amount === null) return '';
+    if (typeof amount === 'string') return amount; // already formatted string
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount as number);
+  };
+
+  const formatDateTime = (iso?: string) => {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString() + ' - ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch { return ''; }
+  };
+
+  const escapeCsv = (v: any) => {
+    const s = (v ?? '').toString();
+    if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+
+  const handleDownload = () => {
+    const rows = filteredRequests.length ? filteredRequests : requests;
+    if (!rows || rows.length === 0) {
+      toast.error('No requests to download');
+      return;
+    }
+    const headers = [
+      'ID','Service','Status','Mechanic','Estimated Cost','ETA (min)','Created At','Address'
+    ];
+    const lines = [headers.join(',')];
+    rows.forEach((r: any) => {
+      const line = [
+        escapeCsv(r._id),
+        escapeCsv(r.serviceType || (Array.isArray(r.serviceTypes) ? r.serviceTypes.join(' | ') : '')),
+        escapeCsv(r.status),
+        escapeCsv(r.mechanicId?.name || 'Unassigned'),
+        escapeCsv(typeof r.estimatedCost === 'number' ? formatRupees(r.estimatedCost) : (r.estimatedCost || '')),
+        escapeCsv(r.etaMinutes ?? ''),
+        escapeCsv(formatDateTime(r.createdAt)),
+        escapeCsv(r.location?.address || '')
+      ].join(',');
+      lines.push(line);
+    });
+    // Prepend BOM for Excel
+    const csv = '\ufeff' + lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    a.download = `roadguard-requests-${filter}-${ts}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Download started');
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -115,7 +150,7 @@ const RequestHistory: React.FC = () => {
             <h1 className="text-xl font-semibold text-gray-800">Request History</h1>
           </div>
           <div className="flex items-center gap-3">
-            <button className="p-2 hover:bg-gray-100 rounded-lg">
+            <button onClick={handleDownload} className="p-2 hover:bg-gray-100 rounded-lg">
               <Download className="w-6 h-6 text-gray-600" />
             </button>
             <UserMenu />
@@ -164,9 +199,22 @@ const RequestHistory: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {filteredRequests.map(request => (
+            {loading && (
+              <div className="col-span-1 sm:col-span-2 flex items-center justify-center py-12">
+                <div className="flex items-center gap-3 text-gray-500">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" />
+                  <span>Loading...</span>
+                </div>
+              </div>
+            )}
+            {!loading && filteredRequests.length === 0 && (
+              <div className="col-span-1 sm:col-span-2 text-center text-gray-500 py-12">
+                {error ? 'Failed to load. Please try again.' : 'No requests yet.'}
+              </div>
+            )}
+            {!loading && filteredRequests.map(request => (
               <motion.div 
-                key={request.id} 
+                key={request._id} 
                 className="bg-white p-4 rounded-lg shadow-md transition-all hover:shadow-lg"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -178,22 +226,18 @@ const RequestHistory: React.FC = () => {
                       {getStatusIcon(request.status)}
                     </div>
                     <div>
-                      <h3 className="text-md font-semibold text-gray-800">{request.service}</h3>
-                      <p className="text-sm text-gray-500">{request.workshop} - {request.mechanic}</p>
+                      <h3 className="text-md font-semibold text-gray-800">{request.serviceType}</h3>
+                      <p className="text-sm text-gray-500">{request.mechanicId?.name ? request.mechanicId.name : 'Unassigned'}</p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-md font-semibold text-gray-800">{request.cost}</p>
-                    <p className="text-sm text-gray-500">{request.date} - {request.time}</p>
+                    <p className="text-md font-semibold text-gray-800">{formatRupees(request.estimatedCost)}</p>
+                    <p className="text-sm text-gray-500">{formatDateTime(request.createdAt)}</p>
                   </div>
                 </div>
                 <div className="flex items-center justify-between text-gray-500 text-sm">
-                  <span>{request.duration}</span>
-                  <div className="flex items-center space-x-1">
-                    {[...Array(request.rating)].map((_, i) => (
-                      <Star key={i} className="w-4 h-4 text-yellow-500" />
-                    ))}
-                  </div>
+                  <span>{request.etaMinutes ? `${request.etaMinutes} min` : ''}</span>
+                  {/* Rating UI placeholder for future */}
                 </div>
               </motion.div>
             ))}

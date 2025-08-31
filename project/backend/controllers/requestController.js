@@ -73,7 +73,8 @@ exports.createRequest = async (req, res) => {
 exports.listMyRequests = async (req, res) => {
   try {
     const docs = await ServiceRequest.find({ userId: req.user.userId })
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .populate('mechanicId', 'name');
     return res.json(docs);
   } catch (e) {
     return res.status(400).json({ error: e.message });
@@ -102,6 +103,30 @@ exports.listAll = async (req, res) => {
     console.error('listAll error:', e);
     // Be resilient: return empty list instead of failing the UI
     return res.json([]);
+  }
+};
+
+exports.deleteOne = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await ServiceRequest.findByIdAndDelete(id);
+    if (!doc) return res.status(404).json({ error: 'Not found' });
+    io?.emit('request:deleted', { id });
+    return res.json({ success: true });
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+};
+
+exports.deleteMany = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids required' });
+    await ServiceRequest.deleteMany({ _id: { $in: ids } });
+    io?.emit('request:deleted_many', { ids });
+    return res.json({ success: true, count: ids.length });
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
   }
 };
 

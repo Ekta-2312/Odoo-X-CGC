@@ -168,6 +168,73 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleDelete = async (id: string) => {
+    try {
+      await api.delete(`/api/requests/${id}`);
+      toast.success('Request deleted');
+      const refreshed = await (filter === 'pending' ? api.get('/api/requests/pending') : api.get('/api/requests/all'));
+      setRecentRequests(
+        refreshed.map((r: any) => ({
+          id: r._id,
+          customer: r.userId?.name || 'User',
+          service: Array.isArray(r.serviceTypes) && r.serviceTypes.length ? r.serviceTypes.join(', ') : r.serviceType,
+          location: r.location?.address || 'GPS',
+          mechanic: r.mechanicId ? 'Assigned' : '—',
+          status: r.status,
+          time: new Date(r.createdAt).toLocaleTimeString(),
+        }))
+      );
+    } catch (e) {
+      toast.error('Delete failed');
+    }
+  };
+
+  const handleBulkDelete = async (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    try {
+      await api.post('/api/requests/bulk-delete', { ids });
+      toast.success('Deleted selected');
+      const refreshed = await (filter === 'pending' ? api.get('/api/requests/pending') : api.get('/api/requests/all'));
+      setRecentRequests(
+        refreshed.map((r: any) => ({
+          id: r._id,
+          customer: r.userId?.name || 'User',
+          service: Array.isArray(r.serviceTypes) && r.serviceTypes.length ? r.serviceTypes.join(', ') : r.serviceType,
+          location: r.location?.address || 'GPS',
+          mechanic: r.mechanicId ? 'Assigned' : '—',
+          status: r.status,
+          time: new Date(r.createdAt).toLocaleTimeString(),
+        }))
+      );
+    } catch (e) {
+      // Fallback: attempt to delete one-by-one
+      let ok = 0;
+      for (const id of ids) {
+        try {
+          await api.delete(`/api/requests/${id}`);
+          ok++;
+        } catch {}
+      }
+      if (ok > 0) {
+        toast.success(`Deleted ${ok} of ${ids.length}`);
+        const refreshed = await (filter === 'pending' ? api.get('/api/requests/pending') : api.get('/api/requests/all'));
+        setRecentRequests(
+          refreshed.map((r: any) => ({
+            id: r._id,
+            customer: r.userId?.name || 'User',
+            service: Array.isArray(r.serviceTypes) && r.serviceTypes.length ? r.serviceTypes.join(', ') : r.serviceType,
+            location: r.location?.address || 'GPS',
+            mechanic: r.mechanicId ? 'Assigned' : '—',
+            status: r.status,
+            time: new Date(r.createdAt).toLocaleTimeString(),
+          }))
+        );
+      } else {
+        toast.error('Bulk delete failed');
+      }
+    }
+  };
+
   const handleVerifyToggle = async (id: string, isVerified: boolean) => {
     try {
       await api.patch(`/api/workshops/admin/${id}/verify`, { isVerified });
@@ -259,6 +326,8 @@ const AdminDashboard: React.FC = () => {
                         requests={recentRequests}
                         onAssign={handleAssign}
                         mechanics={mechanics.map((m: any) => ({ id: String(m.id), name: m.name }))}
+                        onDelete={handleDelete}
+                        onBulkDelete={handleBulkDelete}
                       />
                     )}
                   </>
@@ -279,6 +348,8 @@ const AdminDashboard: React.FC = () => {
                 requests={recentRequests}
                 onAssign={handleAssign}
                 mechanics={mechanics.map((m: any) => ({ id: String(m.id), name: m.name }))}
+                onDelete={handleDelete}
+                onBulkDelete={handleBulkDelete}
               />
             </div>
           )}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, MapPin, Clock, Phone } from 'lucide-react';
+import { User, Clock, Trash2 } from 'lucide-react';
 
 interface Request {
   id: string;
@@ -15,10 +15,15 @@ interface RequestsTableProps {
   requests: Request[];
   onAssign?: (requestId: string, mechanicId: string) => void;
   mechanics?: Array<{ id: string; name: string }>; // optional list for assignment
+  onDelete?: (id: string) => void;
+  onBulkDelete?: (ids: string[]) => void;
 }
 
-const RequestsTable: React.FC<RequestsTableProps> = ({ requests, onAssign, mechanics }) => {
+const RequestsTable: React.FC<RequestsTableProps> = ({ requests, onAssign, mechanics, onDelete, onBulkDelete }) => {
   const [selected, setSelected] = React.useState<Record<string, string>>({});
+  const [checked, setChecked] = React.useState<Record<string, boolean>>({});
+  const allChecked = requests.length > 0 && requests.every(r => checked[r.id]);
+  const anyChecked = requests.some(r => checked[r.id]);
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed':
@@ -36,9 +41,20 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, onAssign, mecha
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-800">Service Requests</h3>
-        {onAssign && (
-          <span className="text-sm text-gray-500">Assign a mechanic to pending requests</span>
-        )}
+        <div className="flex items-center gap-3">
+          {onAssign && (
+            <span className="text-sm text-gray-500">Assign a mechanic to pending requests</span>
+          )}
+          {onBulkDelete && (
+            <button
+              disabled={!anyChecked}
+              onClick={() => onBulkDelete(Object.keys(checked).filter(id => checked[id]))}
+              className={`px-3 py-1 text-xs rounded ${anyChecked ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-gray-200 text-gray-500 cursor-not-allowed'}`}
+            >
+              Delete Selected
+            </button>
+          )}
+        </div>
       </div>
       
       <div className="bg-white rounded-lg overflow-hidden">
@@ -46,6 +62,17 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, onAssign, mecha
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
+                <th className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    onChange={(e) => {
+                      const next: Record<string, boolean> = {};
+                      requests.forEach(r => next[r.id] = e.target.checked);
+                      setChecked(next);
+                    }}
+                  />
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Request
                 </th>
@@ -66,14 +93,18 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, onAssign, mecha
             <tbody className="divide-y divide-gray-200">
               {requests.map((request) => (
                 <tr key={request.id} className="hover:bg-gray-50 transition-colors duration-150">
+                  <td className="px-4 py-4">
+                    <input
+                      type="checkbox"
+                      checked={!!checked[request.id]}
+                      onChange={(e) => setChecked(prev => ({ ...prev, [request.id]: e.target.checked }))}
+                    />
+                  </td>
                   <td className="px-6 py-4">
                     <div>
                       <div className="font-medium text-gray-800">{request.id}</div>
                       <div className="text-sm text-gray-600">{request.service}</div>
-                      <div className="flex items-center space-x-1 text-xs text-gray-500">
-                        <MapPin className="w-3 h-3" />
-                        <span>{request.location}</span>
-                      </div>
+                      <div className="text-xs text-gray-500">{request.location}</div>
                     </div>
                   </td>
                   <td className="px-6 py-4">
@@ -119,12 +150,15 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, onAssign, mecha
                           </button>
                         </>
                       )}
-                      <button className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
-                        <Phone className="w-4 h-4" />
-                      </button>
-                      <button className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
-                        <MapPin className="w-4 h-4" />
-                      </button>
+                      {onDelete && (
+                        <button
+                          onClick={() => onDelete(request.id)}
+                          className="p-1 text-red-600 hover:text-red-700 transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

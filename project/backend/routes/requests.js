@@ -18,6 +18,10 @@ router.get('/all', auth(['admin']), ctrl.listAll);
 // Admin: assign mechanic
 router.post('/:id/assign', auth(['admin']), ctrl.assignMechanic);
 
+// Admin: delete requests
+router.delete('/:id', auth(['admin']), ctrl.deleteOne);
+router.post('/bulk-delete', auth(['admin']), ctrl.deleteMany);
+
 // Worker/mechanic: list assigned to me
 router.get('/assigned', auth(['mechanic']), ctrl.listAssignedToMechanic);
 

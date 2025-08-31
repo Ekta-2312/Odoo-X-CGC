@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Phone, MessageCircle, MapPin, Star } from 'lucide-react';
 import UserMenu from './UserMenu';
@@ -13,13 +13,14 @@ const TrackRequest: React.FC = () => {
   const navigate = useNavigate();
   const [currentStatus, setCurrentStatus] = useState(0);
   const [eta, setEta] = useState(0);
-  const [requestId] = useState<string | null>(localStorage.getItem('currentRequestId'));
+  const [requestId, setRequestId] = useState<string | null>(localStorage.getItem('currentRequestId'));
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const mechanicMarkerRef = useRef<L.Marker | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
   const [coords, setCoords] = useState<{ user?: {lat:number;lng:number}; mech?: {lat:number;lng:number} }>({});
   const [mechanicName, setMechanicName] = useState<string>('Awaiting assignment');
+  const [address, setAddress] = useState<string>('');
   
   // Optional UI-only placeholders
   const mechanicUi = {
@@ -39,69 +40,118 @@ const TrackRequest: React.FC = () => {
     { label: 'Completed', completed: false, time: '' }
   ];
 
-  // no change to fetching, but UI can read multiple service types from API response if needed later
+  // utility to map statuses to our progress index
+  const stepMap = (s: string) => {
+    switch (s) {
+      case 'submitted': return 0;
+      case 'assigned': return 1;
+      case 'accepted': return 2;
+      case 'in-progress': return 4;
+      case 'completed': return 5;
+      default: return 0;
+    }
+  };
 
-  useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        if (!requestId) return;
-        const data = await api.get(`/api/requests/${requestId}`);
-  setEta(data.etaMinutes || 0);
-        // Map server statuses to our progress steps: submitted->0, assigned/accepted->1/2, in-progress->4, completed->5
-        const stepMap = (s: string) => {
-          switch (s) {
-            case 'submitted': return 0;
-            case 'assigned': return 1;
-            case 'accepted': return 2;
-            case 'in-progress': return 4;
-            case 'completed': return 5;
-            default: return 0;
-          }
-        };
-        setCurrentStatus(stepMap(data.status));
-
-        // Extract coords for map
-        const u = data.location;
-        const m = data.mechanicId?.location || null;
-        const userPos = u && (u.latitude || u.longitude) ? { lat: u.latitude, lng: u.longitude } : undefined;
-        const mechPos = m && (m.latitude || m.longitude) ? { lat: m.latitude, lng: m.longitude } : undefined;
-        setCoords({ user: userPos, mech: mechPos });
-
-  // Mechanic name from API (populated in backend)
-  setMechanicName(data.mechanicId?.name || 'Awaiting assignment');
-      } catch (e) {}
-    };
-    fetchStatus();
-    const t = setInterval(fetchStatus, 5000);
-    // Realtime updates
-    const s = getSocket();
-    const onUpd = (doc: any) => {
-      if (!requestId || !doc || String(doc._id) !== String(requestId)) return;
-      setEta(doc.etaMinutes || 0);
-      const stepMap = (s: string) => {
-        switch (s) {
-          case 'submitted': return 0;
-          case 'assigned': return 1;
-          case 'accepted': return 2;
-          case 'in-progress': return 4;
-          case 'completed': return 5;
-          default: return 0;
-        }
-      };
-      setCurrentStatus(stepMap(doc.status));
-      const u = doc.location;
-      const m = doc.mechanicId?.location || null;
+  const loadById = useCallback(async (id: string) => {
+    try {
+      const data = await api.get(`/api/requests/${id}`);
+      setEta(data.etaMinutes || 0);
+      setCurrentStatus(stepMap(data.status));
+      // Coords
+      const u = data.location;
+      const m = data.mechanicId?.location || null;
       const userPos = u && (u.latitude || u.longitude) ? { lat: u.latitude, lng: u.longitude } : undefined;
       const mechPos = m && (m.latitude || m.longitude) ? { lat: m.latitude, lng: m.longitude } : undefined;
       setCoords({ user: userPos, mech: mechPos });
-      setMechanicName(doc.mechanicId?.name || 'Awaiting assignment');
+      setMechanicName(data.mechanicId?.name || 'Awaiting assignment');
+      setAddress(data.location?.address || '');
+    } catch (e) {
+      // silently ignore
+    }
+  }, []);
+
+  const pickActiveRequest = useCallback(async () => {
+    try {
+      const list = await api.get('/api/requests/me');
+      const active = (list as any[]).find(r => !['completed','rejected','cancelled'].includes(r.status));
+      const latest = active || (Array.isArray(list) && list.length ? list[0] : null);
+      if (latest?._id) {
+        setRequestId(latest._id);
+        localStorage.setItem('currentRequestId', latest._id);
+        await loadById(latest._id);
+      } else {
+        setRequestId(null);
+        setMechanicName('Awaiting assignment');
+        setAddress('');
+        setEta(0);
+        setCoords({});
+        setCurrentStatus(0);
+      }
+    } catch {}
+  }, [loadById]);
+
+  useEffect(() => {
+    if (requestId) {
+      loadById(requestId);
+    } else {
+      pickActiveRequest();
+    }
+    // live updates
+    const s = getSocket();
+    const onNew = (doc: any) => {
+      try {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        if (!user?.id) return;
+        if (String(doc?.userId) === String(user.id)) {
+          // if no current tracked request or current finished, follow the new one
+          if (!requestId || ['completed','rejected','cancelled'].includes(String(stepMap.name))) {
+            setRequestId(String(doc._id));
+            localStorage.setItem('currentRequestId', String(doc._id));
+            loadById(String(doc._id));
+          }
+        }
+      } catch {}
     };
+    const onUpd = async (doc: any) => {
+      const id = String(doc?._id || '');
+      if (requestId && id === String(requestId)) {
+        // refresh populated details (mechanic name, etc.)
+        await loadById(id);
+      } else {
+        // If update is an assignment for this user and we have no active id, follow it
+        try {
+          const user = JSON.parse(localStorage.getItem('user') || '{}');
+          if (String(doc?.userId) === String(user.id) && ['assigned','accepted','in-progress'].includes(String(doc?.status))) {
+            setRequestId(id);
+            localStorage.setItem('currentRequestId', id);
+            await loadById(id);
+          }
+        } catch {}
+      }
+    };
+    const onDel = async (p: any) => {
+      if (p && String(p.id) === String(requestId)) {
+        setRequestId(null);
+        await pickActiveRequest();
+      }
+    };
+    const onDelMany = async (p: any) => {
+      if (p?.ids && requestId && p.ids.map(String).includes(String(requestId))) {
+        setRequestId(null);
+        await pickActiveRequest();
+      }
+    };
+    s.on('request:new', onNew);
     s.on('request:updated', onUpd);
+    s.on('request:deleted', onDel);
+    s.on('request:deleted_many', onDelMany);
     return () => {
-      clearInterval(t);
+      s.off('request:new', onNew);
       s.off('request:updated', onUpd);
+      s.off('request:deleted', onDel);
+      s.off('request:deleted_many', onDelMany);
     };
-  }, [requestId]);
+  }, [requestId, loadById, pickActiveRequest]);
 
   const handleCall = () => {
     toast.success('Calling mechanic...');
@@ -161,7 +211,7 @@ const TrackRequest: React.FC = () => {
             </button>
             <div>
               <h1 className="text-xl font-semibold text-gray-800">Track Request</h1>
-              <p className="text-sm text-gray-600">#RG123456</p>
+              <p className="text-sm text-gray-600">#{requestId ? String(requestId).slice(-6).toUpperCase() : '—'}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -224,7 +274,7 @@ const TrackRequest: React.FC = () => {
           <div className="flex items-center space-x-4">
             <MapPin className="w-6 h-6 text-gray-600" />
             <div className="flex-1">
-              <p className="text-gray-800 font-medium">123 Main St, Springfield</p>
+              <p className="text-gray-800 font-medium">{address || '—'}</p>
               <p className="text-sm text-gray-600">Estimated Arrival: {eta} minutes</p>
             </div>
           </div>

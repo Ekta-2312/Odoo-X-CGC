@@ -37,11 +37,10 @@ const SideNavigation: React.FC<SideNavigationProps> = ({ userType }) => {
   ];
 
   const userNavItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home, path: '/dashboard' },
+    { id: 'dashboard', label: 'Dashboard', icon: Home, path: '/user' },
     { id: 'vehicles', label: 'My Vehicles', icon: Car, path: '/vehicles' },
     { id: 'requests', label: 'My Requests', icon: ClipboardList, path: '/history' },
-    { id: 'track', label: 'Track Request', icon: MapPin, path: '/track' },
-    { id: 'settings', label: 'Settings', icon: Settings, path: '/settings' },
+  { id: 'track', label: 'Track Request', icon: MapPin, path: '/track' },
   ];
 
   const navItems = userType === 'mechanic' ? mechanicNavItems : (userType === 'admin' ? adminNavItems : userNavItems);
